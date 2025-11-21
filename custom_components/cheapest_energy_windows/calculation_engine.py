@@ -104,9 +104,82 @@ class WindowCalculationEngine:
         else:
             _LOGGER.debug("Calculation window disabled")
 
-        # Find windows
+        # Pre-filter prices based on time override to prevent idle/off periods from being selected
+        # This ensures that windows calculations respect time overrides from the start
+        time_override_enabled = config.get(f"time_override_enabled{suffix}", False)
+        prices_for_charge_calc = processed_prices
+        prices_for_discharge_calc = processed_prices
+
+        if time_override_enabled:
+            override_mode = config.get(f"time_override_mode{suffix}", MODE_IDLE)
+
+            # Get time values and ensure they're in string format
+            override_start = config.get(f"time_override_start{suffix}", "")
+            override_end = config.get(f"time_override_end{suffix}", "")
+
+            # Convert to string format if needed
+            if hasattr(override_start, 'strftime'):
+                override_start_str = override_start.strftime("%H:%M:%S")
+            elif override_start:
+                override_start_str = str(override_start)
+            else:
+                override_start_str = ""
+
+            if hasattr(override_end, 'strftime'):
+                override_end_str = override_end.strftime("%H:%M:%S")
+            elif override_end:
+                override_end_str = str(override_end)
+            else:
+                override_end_str = ""
+
+            if override_start_str and override_end_str:
+                _LOGGER.debug(f"Time override enabled: {override_start_str} - {override_end_str}, mode: {override_mode}")
+
+                # For idle/off modes, exclude override periods from window calculations
+                if override_mode in [MODE_IDLE, MODE_OFF]:
+                    filtered_prices = []
+                    for price_data in processed_prices:
+                        if not self._is_in_time_range(price_data["timestamp"], override_start_str, override_end_str):
+                            filtered_prices.append(price_data)
+                    prices_for_charge_calc = filtered_prices
+                    prices_for_discharge_calc = filtered_prices
+                    _LOGGER.debug(f"Filtered {len(processed_prices)} prices to {len(filtered_prices)} after excluding {override_mode} periods")
+
+                # For charge mode, only charge windows should be in override period
+                elif override_mode == MODE_CHARGE:
+                    # Charge windows: only consider prices within override period
+                    charge_override_prices = []
+                    for price_data in processed_prices:
+                        if self._is_in_time_range(price_data["timestamp"], override_start_str, override_end_str):
+                            charge_override_prices.append(price_data)
+                    prices_for_charge_calc = charge_override_prices
+                    # Discharge windows: exclude override period
+                    discharge_filtered = []
+                    for price_data in processed_prices:
+                        if not self._is_in_time_range(price_data["timestamp"], override_start_str, override_end_str):
+                            discharge_filtered.append(price_data)
+                    prices_for_discharge_calc = discharge_filtered
+                    _LOGGER.debug(f"Charge mode: {len(charge_override_prices)} prices for charging, {len(discharge_filtered)} for discharge")
+
+                # For discharge modes, only discharge windows should be in override period
+                elif override_mode in [MODE_DISCHARGE, MODE_DISCHARGE_AGGRESSIVE]:
+                    # Charge windows: exclude override period
+                    charge_filtered = []
+                    for price_data in processed_prices:
+                        if not self._is_in_time_range(price_data["timestamp"], override_start_str, override_end_str):
+                            charge_filtered.append(price_data)
+                    prices_for_charge_calc = charge_filtered
+                    # Discharge windows: only consider prices within override period
+                    discharge_override_prices = []
+                    for price_data in processed_prices:
+                        if self._is_in_time_range(price_data["timestamp"], override_start_str, override_end_str):
+                            discharge_override_prices.append(price_data)
+                    prices_for_discharge_calc = discharge_override_prices
+                    _LOGGER.debug(f"Discharge mode: {len(charge_filtered)} prices for charging, {len(discharge_override_prices)} for discharge")
+
+        # Find windows using the pre-filtered prices
         charge_windows = self._find_charge_windows(
-            processed_prices,
+            prices_for_charge_calc,  # Use filtered prices
             num_charge_windows,
             cheap_percentile,
             min_spread,
@@ -114,7 +187,7 @@ class WindowCalculationEngine:
         )
 
         discharge_windows = self._find_discharge_windows(
-            processed_prices,
+            prices_for_discharge_calc,  # Use filtered prices
             charge_windows,
             num_discharge_windows,
             expensive_percentile,
@@ -123,7 +196,7 @@ class WindowCalculationEngine:
         )
 
         aggressive_windows = self._find_aggressive_discharge_windows(
-            processed_prices,
+            prices_for_discharge_calc,  # Use filtered prices for consistency
             charge_windows,
             discharge_windows,
             num_discharge_windows,
@@ -651,9 +724,26 @@ class WindowCalculationEngine:
             return list(charge_windows), list(discharge_windows)
 
         # Get override configuration (using suffix for tomorrow settings)
-        override_start_str = config.get(f"time_override_start{suffix}", "")
-        override_end_str = config.get(f"time_override_end{suffix}", "")
+        # Get time values and ensure they're in string format
+        override_start = config.get(f"time_override_start{suffix}", "")
+        override_end = config.get(f"time_override_end{suffix}", "")
         override_mode = config.get(f"time_override_mode{suffix}", MODE_IDLE)
+
+        # Convert to string format if needed
+        if hasattr(override_start, 'strftime'):
+            override_start_str = override_start.strftime("%H:%M:%S")
+        elif override_start:
+            override_start_str = str(override_start)
+        else:
+            override_start_str = ""
+
+        if hasattr(override_end, 'strftime'):
+            override_end_str = override_end.strftime("%H:%M:%S")
+        elif override_end:
+            override_end_str = str(override_end)
+        else:
+            override_end_str = ""
+
         price_override_threshold = config.get(f"price_override_threshold{suffix}", 0.15)
 
         # Validate time override config if enabled
