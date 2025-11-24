@@ -14,6 +14,7 @@ from .const import (
     DOMAIN,
     LOGGER_NAME,
     PREFIX,
+    VERSION,
     DEFAULT_QUIET_START,
     DEFAULT_QUIET_END,
     DEFAULT_TIME_OVERRIDE_START,
@@ -99,7 +100,7 @@ class CEWTime(TimeEntity):
             "name": "Cheapest Energy Windows",
             "manufacturer": "Community",
             "model": "Energy Optimizer",
-            "sw_version": "1.0.0",
+            "sw_version": VERSION,
         }
 
     async def async_set_value(self, value: time) -> None:

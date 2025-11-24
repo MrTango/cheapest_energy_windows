@@ -15,6 +15,7 @@ from .const import (
     DOMAIN,
     LOGGER_NAME,
     PREFIX,
+    VERSION,
     DEFAULT_CHARGING_WINDOWS,
     DEFAULT_EXPENSIVE_WINDOWS,
     DEFAULT_CHEAP_PERCENTILE,
@@ -211,7 +212,7 @@ class CEWNumber(NumberEntity):
             "name": "Cheapest Energy Windows",
             "manufacturer": "Community",
             "model": "Energy Optimizer",
-            "sw_version": "1.0.0",
+            "sw_version": VERSION,
         }
 
     async def async_set_native_value(self, value: float) -> None:

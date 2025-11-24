@@ -14,6 +14,7 @@ from .const import (
     DOMAIN,
     LOGGER_NAME,
     PREFIX,
+    VERSION,
 )
 
 _LOGGER = logging.getLogger(LOGGER_NAME)
@@ -90,7 +91,7 @@ class CEWSwitch(SwitchEntity):
             "name": "Cheapest Energy Windows",
             "manufacturer": "Community",
             "model": "Energy Optimizer",
-            "sw_version": "1.0.0",
+            "sw_version": VERSION,
         }
 
     async def async_turn_on(self, **kwargs: Any) -> None:

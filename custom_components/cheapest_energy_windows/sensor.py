@@ -21,6 +21,7 @@ from .const import (
     DOMAIN,
     LOGGER_NAME,
     PREFIX,
+    VERSION,
     STATE_CHARGE,
     STATE_DISCHARGE,
     STATE_DISCHARGE_AGGRESSIVE,
@@ -125,7 +126,7 @@ class CEWBaseSensor(CoordinatorEntity, SensorEntity):
             "name": "Cheapest Energy Windows",
             "manufacturer": "Community",
             "model": "Energy Optimizer",
-            "sw_version": "1.0.0",
+            "sw_version": VERSION,
         }
 
     def _calc_config_hash(self, config: Dict[str, Any], is_tomorrow: bool = False) -> str:
@@ -522,7 +523,7 @@ class CEWPriceSensorProxy(SensorEntity):
             "name": "Cheapest Energy Windows",
             "manufacturer": "Community",
             "model": "Energy Optimizer",
-            "sw_version": "1.0.0",
+            "sw_version": VERSION,
         }
 
     @property
@@ -679,7 +680,7 @@ class CEWLastCalculationSensor(CoordinatorEntity, SensorEntity):
             "name": "Cheapest Energy Windows",
             "manufacturer": "Community",
             "model": "Energy Optimizer",
-            "sw_version": "1.0.0",
+            "sw_version": VERSION,
         }
 
     @callback

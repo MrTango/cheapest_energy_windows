@@ -13,6 +13,7 @@ from .const import (
     DOMAIN,
     PLATFORMS,
     PREFIX,
+    VERSION,
     LOGGER_NAME,
     EVENT_SETTINGS_ROTATED,
 )
@@ -50,7 +51,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         manufacturer="Community",
         model="Energy Optimizer",
         name="Cheapest Energy Windows",
-        sw_version="1.0.0",
+        sw_version=VERSION,
     )
 
     # No entity creation needed - platforms will create their own entities

@@ -14,6 +14,7 @@ from .const import (
     DOMAIN,
     LOGGER_NAME,
     PREFIX,
+    VERSION,
 )
 
 _LOGGER = logging.getLogger(LOGGER_NAME)
@@ -79,7 +80,7 @@ class CEWSelect(SelectEntity):
             "name": "Cheapest Energy Windows",
             "manufacturer": "Community",
             "model": "Energy Optimizer",
-            "sw_version": "1.0.0",
+            "sw_version": VERSION,
         }
 
     async def async_select_option(self, option: str) -> None:
