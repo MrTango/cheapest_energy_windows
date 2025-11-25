@@ -10,6 +10,8 @@ Perfect for users with:
 - Solar installations with feed-in tariffs
 - Electric vehicle charging needs
 
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=cheapest-energy-windows&repository=cheapest_energy_windows&category=integration)
+
 ## Key Features
 
 - **Automatic Window Detection** - Finds optimal charge/discharge times
@@ -21,11 +23,17 @@ Perfect for users with:
 
 ## Quick Start
 
-1. Install through HACS
-2. Add integration in Settings
-3. Follow guided setup wizard
-4. Install dashboard via service call
-5. Start saving on energy costs!
+> ✨ Click the badge above for one-click HACS installation, or follow these steps:
+
+1. Open HACS in your Home Assistant instance
+2. Click on "Integrations"
+3. Search for "Cheapest Energy Windows"
+4. Click "Download"
+5. Restart Home Assistant
+6. Go to Settings > Devices & Services > "Add Integration"
+7. Search for "Cheapest Energy Windows"
+8. Follow guided setup wizard
+9. Start saving on energy costs!
 
 ## Requirements
 
