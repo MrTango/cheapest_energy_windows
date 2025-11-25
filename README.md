@@ -1,6 +1,6 @@
 # Cheapest Energy Windows for Home Assistant
 
-[![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=cheapest-energy-windows&repository=cheapest_energy_windows&category=integration)
 [![GitHub Release](https://img.shields.io/github/release/cheapest-energy-windows/cheapest_energy_windows.svg)](https://github.com/cheapest-energy-windows/cheapest_energy_windows/releases)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -104,18 +104,16 @@ The integration automatically normalizes different sensor formats through a prox
 
 ### HACS Installation (Recommended)
 
+> ✨ Click the badge at the top for one-click HACS installation, or follow these steps:
+
 1. Open HACS in your Home Assistant instance
 2. Click on "Integrations"
-3. Click the three dots menu and select "Custom repositories"
-4. Add this repository URL and select "Integration" as the category
-5. Click "Add"
-6. Search for "Cheapest Energy Windows"
-7. Click "Download"
-8. Restart Home Assistant
-9. Go to Settings > Devices & Services
-10. Click "Add Integration"
-11. Search for "Cheapest Energy Windows"
-12. Follow the configuration wizard
+3. Search for "Cheapest Energy Windows"
+4. Click "Download"
+5. Restart Home Assistant
+6. Go to Settings > Devices & Services > "Add Integration"
+7. Search for "Cheapest Energy Windows"
+8. Follow the configuration wizard
 
 ### Manual Installation
 
