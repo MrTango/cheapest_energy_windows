@@ -35,6 +35,24 @@
           "additional_cost": "Additional costs per kWh in EUR (grid fees, etc.)"
         }
       },
+      "base_usage": {
+        "title": "Base Usage Tracking",
+        "description": "{info}",
+        "data": {
+          "base_usage": "Household Base Load (Watts)",
+          "base_usage_charge_strategy": "During Charging",
+          "base_usage_idle_strategy": "During Idle",
+          "base_usage_discharge_strategy": "During Discharge",
+          "base_usage_aggressive_strategy": "During Aggressive Discharge"
+        },
+        "data_description": {
+          "base_usage": "Average constant power consumption (lights, appliances, standby devices)",
+          "base_usage_charge_strategy": "How base load is handled while battery charges",
+          "base_usage_idle_strategy": "How base load is handled when battery is idle",
+          "base_usage_discharge_strategy": "How base load affects discharge calculations",
+          "base_usage_aggressive_strategy": "How base load affects aggressive discharge calculations"
+        }
+      },
       "power": {
         "title": "Configure Battery Power",
         "description": "Set your battery charging and discharging power.\n\n{charge_help}\n{discharge_help}\n{rte_help}\n\n{note}",
@@ -177,12 +195,70 @@
           "unavailable": "Unavailable"
         }
       }
+    },
+    "select": {
+      "base_usage_charge_strategy": {
+        "name": "Base Usage: During Charging",
+        "state": {
+          "grid_covers_both": "Grid powers house + charging",
+          "battery_covers_base": "Battery powers house during charging"
+        }
+      },
+      "base_usage_idle_strategy": {
+        "name": "Base Usage: During Idle",
+        "state": {
+          "battery_covers": "Battery powers house",
+          "grid_covers": "Grid powers house"
+        }
+      },
+      "base_usage_discharge_strategy": {
+        "name": "Base Usage: During Discharge",
+        "state": {
+          "subtract_base": "House first, export remainder",
+          "already_included": "Export full discharge power"
+        }
+      },
+      "base_usage_aggressive_strategy": {
+        "name": "Base Usage: During Aggressive Discharge",
+        "state": {
+          "same_as_discharge": "Same as discharge strategy",
+          "subtract_base": "House first, export remainder",
+          "already_included": "Export full discharge power"
+        }
+      }
     }
   },
   "services": {
     "rotate_settings": {
       "name": "Rotate Tomorrow Settings",
       "description": "Apply tomorrow's settings to today (usually done automatically at midnight)"
+    }
+  },
+  "selector": {
+    "base_usage_charge_strategy": {
+      "options": {
+        "grid_covers_both": "Grid powers house + charging",
+        "battery_covers_base": "Battery powers house during charging"
+      }
+    },
+    "base_usage_idle_strategy": {
+      "options": {
+        "grid_covers": "Grid powers house",
+        "battery_covers": "Battery powers house"
+      }
+    },
+    "base_usage_discharge_strategy": {
+      "options": {
+        "subtract_base": "House first, export remainder",
+        "already_included": "Export full discharge power"
+      }
+    },
+    "base_usage_aggressive_strategy": {
+      "options": {
+        "same_as_discharge": "Same as discharge strategy",
+        "subtract_base": "House first, export remainder",
+        "already_included": "Export full discharge power"
+      }
     }
   }
 }

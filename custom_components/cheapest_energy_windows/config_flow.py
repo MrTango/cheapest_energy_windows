@@ -201,7 +201,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Configure cost parameters."""
         if user_input is not None:
             self.data.update(user_input)
-            return await self.async_step_power()
+            return await self.async_step_base_usage()
 
         return self.async_show_form(
             step_id="costs",
@@ -215,23 +215,93 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required(CONF_ADDITIONAL_COST, default=DEFAULT_ADDITIONAL_COST): vol.All(
                     vol.Coerce(float), vol.Range(min=0, max=1)
                 ),
-                vol.Optional(CONF_BASE_USAGE, default=DEFAULT_BASE_USAGE): vol.All(
-                    vol.Coerce(int), vol.Range(min=0, max=5000)
-                ),
-                vol.Optional(CONF_BASE_USAGE_CHARGE_STRATEGY, default=DEFAULT_BASE_USAGE_CHARGE_STRATEGY):
-                    vol.In(BASE_USAGE_CHARGE_OPTIONS),
-                vol.Optional(CONF_BASE_USAGE_IDLE_STRATEGY, default=DEFAULT_BASE_USAGE_IDLE_STRATEGY):
-                    vol.In(BASE_USAGE_IDLE_OPTIONS),
-                vol.Optional(CONF_BASE_USAGE_DISCHARGE_STRATEGY, default=DEFAULT_BASE_USAGE_DISCHARGE_STRATEGY):
-                    vol.In(BASE_USAGE_DISCHARGE_OPTIONS),
-                vol.Optional(CONF_BASE_USAGE_AGGRESSIVE_STRATEGY, default=DEFAULT_BASE_USAGE_AGGRESSIVE_STRATEGY):
-                    vol.In(BASE_USAGE_AGGRESSIVE_OPTIONS),
             }),
             description_placeholders={
                 "vat_help": "VAT rate as decimal (e.g., 0.21 for 21%)",
                 "tax_help": "Tax per kWh in EUR",
                 "cost_help": "Additional costs per kWh in EUR",
-                "base_usage_help": "Average household power consumption in Watts (for cost tracking)",
+            },
+        )
+
+    async def async_step_base_usage(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Configure base usage tracking."""
+        if user_input is not None:
+            self.data.update(user_input)
+            return await self.async_step_power()
+
+        return self.async_show_form(
+            step_id="base_usage",
+            data_schema=vol.Schema({
+                vol.Optional(CONF_BASE_USAGE, default=DEFAULT_BASE_USAGE): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0,
+                        max=5000,
+                        step=50,
+                        unit_of_measurement="W",
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Optional(CONF_BASE_USAGE_CHARGE_STRATEGY, default=DEFAULT_BASE_USAGE_CHARGE_STRATEGY): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            {"label": "Grid powers house + charging", "value": "grid_covers_both"},
+                            {"label": "Battery powers house during charging", "value": "battery_covers_base"},
+                        ],
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                        translation_key="base_usage_charge_strategy",
+                    )
+                ),
+                vol.Optional(CONF_BASE_USAGE_IDLE_STRATEGY, default=DEFAULT_BASE_USAGE_IDLE_STRATEGY): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            {"label": "Battery powers house", "value": "battery_covers"},
+                            {"label": "Grid powers house", "value": "grid_covers"},
+                        ],
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                        translation_key="base_usage_idle_strategy",
+                    )
+                ),
+                vol.Optional(CONF_BASE_USAGE_DISCHARGE_STRATEGY, default=DEFAULT_BASE_USAGE_DISCHARGE_STRATEGY): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            {"label": "House first, export remainder", "value": "subtract_base"},
+                            {"label": "Export full discharge power", "value": "already_included"},
+                        ],
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                        translation_key="base_usage_discharge_strategy",
+                    )
+                ),
+                vol.Optional(CONF_BASE_USAGE_AGGRESSIVE_STRATEGY, default=DEFAULT_BASE_USAGE_AGGRESSIVE_STRATEGY): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            {"label": "Same as discharge strategy", "value": "same_as_discharge"},
+                            {"label": "House first, export remainder", "value": "subtract_base"},
+                            {"label": "Export full discharge power", "value": "already_included"},
+                        ],
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                        translation_key="base_usage_aggressive_strategy",
+                    )
+                ),
+            }),
+            description_placeholders={
+                "info": "📊 **What is Base Usage?**\n"
+                       "Track your household's constant power consumption (base load) - the power used by always-on appliances, lights, standby devices, etc.\n\n"
+                       "📈 **Why configure it?**\n"
+                       "Accurate cost tracking. Without this, only battery charge/discharge costs are calculated. With base usage, you get complete daily energy costs.\n\n"
+                       "⚙️ **Strategy Configuration:**\n"
+                       "Configure how your base load is handled during each battery state:\n\n"
+                       "**During Charging** - Who powers the house while battery charges?\n"
+                       "• Grid powers house + charging: Grid provides all power (default)\n"
+                       "• Battery powers house: Battery covers household, grid only charges\n\n"
+                       "**During Idle** - Who powers the house when battery is idle?\n"
+                       "• Grid powers house: Normal grid consumption (default)\n"
+                       "• Battery powers house: Battery covers base load (zero-meter strategy)\n\n"
+                       "**During Discharge** - How is export calculated?\n"
+                       "• House first, export remainder: Battery powers house, exports what's left (default)\n"
+                       "• Export full discharge power: Full discharge goes to grid\n\n"
+                       "💡 **Default: 0W** - Leave at zero to disable base usage tracking."
             },
         )
 

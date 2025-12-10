@@ -34,10 +34,10 @@ async def async_setup_entry(
         ("pricing_window_duration", "Pricing Window Duration", ["15_minutes", "1_hour"], "15_minutes", "mdi:timer"),
         ("time_override_mode", "Time Override Mode", ["idle", "charge", "discharge", "discharge_aggressive", "off"], "idle", "mdi:toggle-switch"),
         ("time_override_mode_tomorrow", "Time Override Mode Tomorrow", ["idle", "charge", "discharge", "discharge_aggressive", "off"], "idle", "mdi:toggle-switch"),
-        ("base_usage_charge_strategy", "Base Usage - Charge Strategy", ["grid_covers_both", "battery_covers_base"], "grid_covers_both", "mdi:battery-charging"),
-        ("base_usage_idle_strategy", "Base Usage - Idle Strategy", ["grid_covers", "battery_covers"], "grid_covers", "mdi:home-lightning-bolt"),
-        ("base_usage_discharge_strategy", "Base Usage - Discharge Strategy", ["already_included", "subtract_base"], "subtract_base", "mdi:battery-arrow-down"),
-        ("base_usage_aggressive_strategy", "Base Usage - Aggressive Strategy", ["same_as_discharge", "already_included", "subtract_base"], "same_as_discharge", "mdi:battery-alert"),
+        ("base_usage_charge_strategy", "Base Usage: During Charging", ["grid_covers_both", "battery_covers_base"], "grid_covers_both", "mdi:battery-charging"),
+        ("base_usage_idle_strategy", "Base Usage: During Idle", ["battery_covers", "grid_covers"], "battery_covers", "mdi:home-lightning-bolt"),
+        ("base_usage_discharge_strategy", "Base Usage: During Discharge", ["already_included", "subtract_base"], "subtract_base", "mdi:battery-arrow-down"),
+        ("base_usage_aggressive_strategy", "Base Usage: During Aggressive Discharge", ["same_as_discharge", "already_included", "subtract_base"], "same_as_discharge", "mdi:battery-alert"),
     ]
 
     for key, name, options, default, icon in select_configs:
@@ -70,6 +70,10 @@ class CEWSelect(SelectEntity):
         self._attr_options = options
         self._attr_icon = icon
         self._attr_has_entity_name = False
+
+        # Set translation key for base_usage strategies to enable HA's native option translations
+        if key.startswith("base_usage_"):
+            self._attr_translation_key = key
 
         # Load value from config entry options, fallback to default
         self._attr_current_option = config_entry.options.get(key, default)
