@@ -724,6 +724,9 @@ class CEWPriceSensorProxy(SensorEntity):
         if sensor_format == "entsoe":
             _LOGGER.debug(f"Detected ENTSO-E format from {price_sensor_id}, normalizing to Nord Pool format")
             self._attr_extra_state_attributes = self._normalize_entsoe_to_nordpool(price_sensor.attributes)
+        elif sensor_format == "tibber":
+            _LOGGER.debug(f"Detected Tibber format from {price_sensor_id}, normalizing to Nord Pool format")
+            self._attr_extra_state_attributes = self._normalize_tibber_to_nordpool(price_sensor.attributes)
         elif sensor_format == "nordpool":
             _LOGGER.debug(f"Detected Nord Pool format from {price_sensor_id}, passing through")
             self._attr_extra_state_attributes = dict(price_sensor.attributes)
