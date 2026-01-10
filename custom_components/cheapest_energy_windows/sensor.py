@@ -546,7 +546,12 @@ class CEWPriceSensorProxy(SensorEntity):
             return "nordpool"
         elif "prices_today" in attributes or "prices_tomorrow" in attributes:
             return "entsoe"
-        # Future: Add more formats here
+        elif "today" in attributes:
+            # Tibber format: 'today' contains list of dicts with 'startsAt' key
+            today_data = attributes.get("today")
+            if isinstance(today_data, list) and len(today_data) > 0:
+                if isinstance(today_data[0], dict) and "startsAt" in today_data[0]:
+                    return "tibber"
         return None
 
     def _normalize_entsoe_to_nordpool(self, attributes):

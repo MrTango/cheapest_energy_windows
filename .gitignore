@@ -80,3 +80,6 @@ node_modules/
 
 # Temporary/working files
 custom_components/main_dashboard_working.yaml
+
+# Auto Claude data directory
+.auto-claude/
