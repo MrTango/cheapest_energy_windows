@@ -79,12 +79,20 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
 
         attrs = sensor_state.attributes
 
-        # Check for either Nord Pool or ENTSO-E format
+        # Check for either Nord Pool, ENTSO-E, or Tibber format
         has_nordpool = 'raw_today' in attrs and 'raw_tomorrow' in attrs
         has_entsoe = 'prices_today' in attrs or 'prices_tomorrow' in attrs
 
-        if not has_nordpool and not has_entsoe:
-            raise ValueError(f"Price sensor {price_sensor} missing required attributes. Need either 'raw_today'/'raw_tomorrow' (Nord Pool) or 'prices_today'/'prices_tomorrow' (ENTSO-E)")
+        # Check for Tibber format: 'today' attribute is a list with dicts containing 'startsAt' key
+        has_tibber = False
+        if 'today' in attrs:
+            today_data = attrs.get('today')
+            if isinstance(today_data, list) and len(today_data) > 0:
+                if isinstance(today_data[0], dict) and 'startsAt' in today_data[0]:
+                    has_tibber = True
+
+        if not has_nordpool and not has_entsoe and not has_tibber:
+            raise ValueError(f"Price sensor {price_sensor} missing required attributes. Need either 'raw_today'/'raw_tomorrow' (Nord Pool), 'prices_today'/'prices_tomorrow' (ENTSO-E), or 'today'/'tomorrow' with 'startsAt' entries (Tibber)")
 
         # ENTSO-E sensors don't have price_in_cents, only check for Nord Pool
         if has_nordpool and attrs.get('price_in_cents') is True:
