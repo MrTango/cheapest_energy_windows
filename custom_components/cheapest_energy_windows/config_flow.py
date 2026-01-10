@@ -141,10 +141,11 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "invalid_price_sensor"
                 _LOGGER.error(f"Price sensor validation failed: {e}")
 
-        # Try to auto-detect price sensors (both Nord Pool and ENTSO-E formats)
+        # Try to auto-detect price sensors (Nord Pool, ENTSO-E, and Tibber formats)
         price_sensors = []
         entsoe_sensors = []
         nordpool_sensors = []
+        tibber_sensors = []
 
         for state in self.hass.states.async_all("sensor"):
             attrs = state.attributes
@@ -162,6 +163,14 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 entsoe_sensors.append(state.entity_id)
                 price_sensors.append(state.entity_id)
 
+            # Check for Tibber format: 'today' attribute is a list with dicts containing 'startsAt' key
+            elif attrs.get("today") is not None:
+                today_data = attrs.get("today")
+                if isinstance(today_data, list) and len(today_data) > 0:
+                    if isinstance(today_data[0], dict) and "startsAt" in today_data[0]:
+                        tibber_sensors.append(state.entity_id)
+                        price_sensors.append(state.entity_id)
+
         # Show error if no sensors found
         if not price_sensors:
             return self.async_show_form(
@@ -169,7 +178,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 data_schema=vol.Schema({}),
                 errors={"base": "no_price_sensors"},
                 description_placeholders={
-                    "info": "⚠️ No compatible price sensors found!\n\nPlease install a compatible price sensor first. Supported sensors:\n• Nordpool (HACS)\n• ENTSO-E (HACS)\n\nVisit our GitHub page for setup instructions.\n\nThe sensor must have a 'raw_today' (Nordpool) or 'prices_today' (ENTSO-E) attribute with hourly or 15-minute price data."
+                    "info": "⚠️ No compatible price sensors found!\n\nPlease install a compatible price sensor first. Supported sensors:\n• Nordpool (HACS)\n• ENTSO-E (HACS)\n• Tibber (Home Assistant Core)\n\nVisit our GitHub page for setup instructions.\n\nThe sensor must have a 'raw_today' (Nordpool), 'prices_today' (ENTSO-E), or 'today' with 'startsAt' entries (Tibber) attribute with hourly or 15-minute price data."
                 },
             )
 
@@ -178,13 +187,15 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         for sensor in price_sensors[:5]:
             if sensor in entsoe_sensors:
                 sensor_list.append(f"- {sensor} (ENTSO-E)")
+            elif sensor in tibber_sensors:
+                sensor_list.append(f"- {sensor} (Tibber)")
             else:
                 sensor_list.append(f"- {sensor} (Nord Pool)")
 
         # Add sensor format notes
         sensor_note = ""
-        if nordpool_sensors or entsoe_sensors:
-            sensor_note = "\n\n📝 **Sensor Requirements:**\n• **15-minute interval sensor required** - The integration needs 15-minute price data for optimal window calculation\n• If you have hourly pricing contracts, the system will automatically aggregate 15-minute data into hourly windows\n• Both Nord Pool and ENTSO-E 15-minute sensors are supported"
+        if nordpool_sensors or entsoe_sensors or tibber_sensors:
+            sensor_note = "\n\n📝 **Sensor Requirements:**\n• **15-minute interval sensor required** - The integration needs 15-minute price data for optimal window calculation\n• If you have hourly pricing contracts, the system will automatically aggregate 15-minute data into hourly windows\n• Nord Pool, ENTSO-E, and Tibber 15-minute sensors are supported"
 
         # Show available sensors for selection (no default)
         return self.async_show_form(
@@ -199,7 +210,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             }),
             errors=errors,
             description_placeholders={
-                "info": f"✅ Detected {len(price_sensors)} compatible price sensor(s)\n\n⚠️ **IMPORTANT - Price Unit Requirement:**\nYour price sensor MUST use EUR/kWh (e.g., 0.25), NOT cents (e.g., 25).\nSensors configured for cents/kWh are currently not supported and will cause incorrect calculations.\n\nPlease select your price sensor:\n{chr(10).join(sensor_list)}\n\nSupported sensor formats:\n• Nord Pool: 'raw_today'/'raw_tomorrow' attributes\n• ENTSO-E: 'prices_today'/'prices_tomorrow' attributes{sensor_note}"
+                "info": f"✅ Detected {len(price_sensors)} compatible price sensor(s)\n\n⚠️ **IMPORTANT - Price Unit Requirement:**\nYour price sensor MUST use EUR/kWh (e.g., 0.25), NOT cents (e.g., 25).\nSensors configured for cents/kWh are currently not supported and will cause incorrect calculations.\n\nPlease select your price sensor:\n{chr(10).join(sensor_list)}\n\nSupported sensor formats:\n• Nord Pool: 'raw_today'/'raw_tomorrow' attributes\n• ENTSO-E: 'prices_today'/'prices_tomorrow' attributes\n• Tibber: 'today'/'tomorrow' attributes with 'startsAt' entries{sensor_note}"
             },
         )
 
