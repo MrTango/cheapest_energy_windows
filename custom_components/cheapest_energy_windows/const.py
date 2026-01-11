@@ -128,6 +128,11 @@ ATTR_TIME_OVERRIDE_ACTIVE: Final = "time_override_active"
 # Service names
 SERVICE_ROTATE_SETTINGS: Final = "rotate_tomorrow_settings"
 
+# Tibber integration constants
+TIBBER_SERVICE_DOMAIN: Final = "tibber"
+TIBBER_SERVICE_GET_PRICES: Final = "get_prices"
+TIBBER_TOMORROW_END_HOUR: Final = 23  # Tomorrow prices extend until 23:00 (end of day)
+
 # Events
 EVENT_SETTINGS_ROTATED: Final = f"{DOMAIN}_settings_rotated"
 
