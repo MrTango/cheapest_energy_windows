@@ -834,6 +834,141 @@ class CEWPriceSensorProxy(SensorEntity):
 
         return today_prices, tomorrow_prices
 
+    def _normalize_tibber_action_response(
+        self,
+        today_prices: List[Dict[str, Any]],
+        tomorrow_prices: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Convert Tibber API action response to Nord Pool canonical format.
+
+        This normalizes the response from tibber.get_prices action which returns
+        price data in a different format than Tibber sensor attributes.
+
+        Tibber API action format (extracted from prices["null"]):
+        [
+            {"start_time": "2026-01-11T00:00:00.000+01:00", "price": 0.2865},
+            {"start_time": "2026-01-11T00:15:00.000+01:00", "price": 0.274},
+            ...
+        ]
+
+        Nord Pool canonical format:
+        {
+            "raw_today": [{"start": "...", "end": "...", "value": 0.2865}],
+            "raw_tomorrow": [...],
+            "tomorrow_valid": True/False
+        }
+
+        Args:
+            today_prices: List of price dicts from today's API call
+            tomorrow_prices: List of price dicts from tomorrow's API call
+
+        Returns:
+            Dictionary with raw_today, raw_tomorrow, and tomorrow_valid keys
+            in Nord Pool canonical format.
+        """
+        from datetime import timedelta
+
+        def _detect_interval(price_list: List[Dict[str, Any]]) -> int:
+            """Detect interval duration from consecutive entries.
+
+            Returns interval in minutes. Defaults to 15 minutes if unable to detect.
+            Tibber API typically uses 15-minute intervals.
+            """
+            if len(price_list) < 2:
+                return 15  # Default to 15 minutes for single entry
+
+            # Get first two entries to detect interval
+            first_time = dt_util.parse_datetime(price_list[0].get("start_time", ""))
+            second_time = dt_util.parse_datetime(price_list[1].get("start_time", ""))
+
+            if first_time and second_time:
+                delta = (second_time - first_time).total_seconds() / 60
+                # Support 15-minute or hourly intervals
+                if delta in [15, 60]:
+                    return int(delta)
+
+            return 15  # Default to 15 minutes (Tibber standard)
+
+        def _convert_price_list(price_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+            """Convert a list of Tibber API action prices to Nord Pool format.
+
+            Handles the mapping:
+              - start_time → start (ISO 8601 local time)
+              - (calculated) → end (start + interval)
+              - price → value
+            """
+            if not price_list:
+                return []
+
+            result = []
+            interval_minutes = _detect_interval(price_list)
+
+            for item in price_list:
+                start_time = item.get("start_time", "")
+
+                # Skip entries with missing or invalid data
+                if not start_time:
+                    _LOGGER.debug(
+                        "Skipping Tibber price entry with missing start_time: %s",
+                        item,
+                    )
+                    continue
+
+                parsed = dt_util.parse_datetime(start_time)
+                if not parsed:
+                    _LOGGER.debug(
+                        "Failed to parse Tibber start_time: %s",
+                        start_time,
+                    )
+                    continue
+
+                # Convert to local timezone
+                local_time = dt_util.as_local(parsed)
+                end_time = local_time + timedelta(minutes=interval_minutes)
+
+                # Get price value, skip if missing
+                price = item.get("price")
+                if price is None:
+                    _LOGGER.debug(
+                        "Skipping Tibber price entry with missing price: %s",
+                        item,
+                    )
+                    continue
+
+                result.append({
+                    "start": local_time.isoformat(),
+                    "end": end_time.isoformat(),
+                    "value": price,
+                })
+
+            return result
+
+        # Build normalized output
+        normalized: Dict[str, Any] = {}
+
+        # Convert today's prices to raw_today
+        normalized["raw_today"] = _convert_price_list(today_prices)
+        _LOGGER.debug(
+            "Normalized Tibber today prices: %d entries",
+            len(normalized["raw_today"]),
+        )
+
+        # Convert tomorrow's prices to raw_tomorrow
+        if tomorrow_prices:
+            normalized["raw_tomorrow"] = _convert_price_list(tomorrow_prices)
+            normalized["tomorrow_valid"] = len(normalized["raw_tomorrow"]) > 0
+        else:
+            normalized["raw_tomorrow"] = []
+            normalized["tomorrow_valid"] = False
+
+        _LOGGER.debug(
+            "Normalized Tibber tomorrow prices: %d entries, valid: %s",
+            len(normalized["raw_tomorrow"]),
+            normalized["tomorrow_valid"],
+        )
+
+        return normalized
+
     @callback
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
