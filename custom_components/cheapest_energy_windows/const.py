@@ -3,7 +3,7 @@ from datetime import timedelta
 from typing import Final
 
 # Domain
-DOMAIN: Final = "cheapest_energy_windows"
+DOMAIN: Final = "cheapest_energy_windows_tibber"
 PREFIX: Final = "cew_"
 VERSION: Final = "1.0.7"
 
