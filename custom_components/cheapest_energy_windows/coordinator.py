@@ -92,9 +92,14 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             raw_tomorrow = price_state.attributes.get("raw_tomorrow", [])
             tomorrow_valid = price_state.attributes.get("tomorrow_valid", False)
 
+            # Check if proxy sensor is using Tibber action-based fetching
+            # This flag is set by CEWPriceSensorProxy when tibber.get_prices action is used
+            tibber_action_mode = price_state.attributes.get("tibber_action_mode", False)
+
             _LOGGER.info(f"Raw today count: {len(raw_today)}")
             _LOGGER.info(f"Raw tomorrow count: {len(raw_tomorrow)}")
             _LOGGER.info(f"Tomorrow valid: {tomorrow_valid}")
+            _LOGGER.info(f"Tibber action mode: {tibber_action_mode}")
 
             if not raw_today:
                 _LOGGER.warning("No price data available for today")
@@ -192,6 +197,8 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 "scheduled_update": scheduled_update,
                 "last_price_update": self._last_price_update,
                 "last_config_update": self._last_config_update,
+                # Tibber action mode flag - indicates if prices are from tibber.get_prices action
+                "tibber_action_mode": tibber_action_mode,
             }
 
             _LOGGER.info(f"Data structure keys: {list(data.keys())}")
@@ -344,4 +351,6 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "config": config,
             "last_update": dt_util.now(),
             "error": reason,
+            # Tibber action mode - False when empty/error data
+            "tibber_action_mode": False,
         }

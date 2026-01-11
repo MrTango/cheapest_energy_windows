@@ -946,6 +946,10 @@ class CEWPriceSensorProxy(SensorEntity):
         # Build normalized output
         normalized: Dict[str, Any] = {}
 
+        # Flag to indicate this data came from Tibber action-based fetching
+        # This allows the coordinator to track the data source mode
+        normalized["tibber_action_mode"] = True
+
         # Convert today's prices to raw_today
         normalized["raw_today"] = _convert_price_list(today_prices)
         _LOGGER.debug(
