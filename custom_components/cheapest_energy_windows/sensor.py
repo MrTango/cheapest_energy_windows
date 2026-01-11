@@ -969,6 +969,106 @@ class CEWPriceSensorProxy(SensorEntity):
 
         return normalized
 
+    def _should_use_tibber_action(self) -> bool:
+        """Determine if we should use Tibber action-based fetching vs sensor-based.
+
+        This method checks:
+        1. If the tibber.get_prices service is available in Home Assistant
+        2. If the configured price sensor is missing or has no usable price data
+
+        Returns:
+            True if we should use tibber.get_prices action to fetch prices,
+            False if we should rely on sensor-based data.
+        """
+        # Check 1: Is the Tibber service available?
+        if not self.hass.services.has_service(TIBBER_SERVICE_DOMAIN, TIBBER_SERVICE_GET_PRICES):
+            _LOGGER.debug(
+                "Tibber action not available: %s.%s service not registered",
+                TIBBER_SERVICE_DOMAIN,
+                TIBBER_SERVICE_GET_PRICES,
+            )
+            return False
+
+        # Check 2: Get the configured price sensor and its data
+        price_sensor_entity = self.hass.states.get(f"text.{PREFIX}price_sensor_entity")
+        if not price_sensor_entity:
+            # No price sensor configured, but Tibber action is available - use it
+            _LOGGER.debug(
+                "No price sensor entity configured, Tibber action available - using action-based fetching"
+            )
+            return True
+
+        price_sensor_id = price_sensor_entity.state
+        if not price_sensor_id or price_sensor_id == "":
+            # Price sensor not configured, but Tibber action is available - use it
+            _LOGGER.debug(
+                "Price sensor entity not set, Tibber action available - using action-based fetching"
+            )
+            return True
+
+        # Get the actual price sensor state
+        price_sensor = self.hass.states.get(price_sensor_id)
+        if not price_sensor:
+            # Configured sensor not found, but Tibber action is available - use it
+            _LOGGER.debug(
+                "Configured price sensor %s not found, using Tibber action fallback",
+                price_sensor_id,
+            )
+            return True
+
+        # Check 3: Does the sensor have usable price data?
+        attributes = price_sensor.attributes
+        sensor_format = self._detect_sensor_format(attributes)
+
+        if sensor_format is None:
+            # Unknown format - check if it's a Tibber sensor with empty data
+            # Tibber sensors sometimes don't expose price data via attributes
+            # In this case, we should use the action-based approach
+            _LOGGER.debug(
+                "Price sensor %s has unknown format, checking for Tibber action fallback",
+                price_sensor_id,
+            )
+
+            # If Tibber service is available and sensor format is unknown,
+            # the sensor might be a Tibber sensor that doesn't expose attributes
+            return True
+
+        # Check if the detected format has actual data
+        if sensor_format == "nordpool":
+            raw_today = attributes.get("raw_today", [])
+            if not raw_today:
+                _LOGGER.debug(
+                    "Nord Pool sensor %s has empty raw_today, using Tibber action fallback",
+                    price_sensor_id,
+                )
+                return True
+
+        elif sensor_format == "entsoe":
+            prices_today = attributes.get("prices_today", [])
+            if not prices_today:
+                _LOGGER.debug(
+                    "ENTSO-E sensor %s has empty prices_today, using Tibber action fallback",
+                    price_sensor_id,
+                )
+                return True
+
+        elif sensor_format == "tibber":
+            today_data = attributes.get("today", [])
+            if not today_data:
+                _LOGGER.debug(
+                    "Tibber sensor %s has empty today data, using Tibber action fallback",
+                    price_sensor_id,
+                )
+                return True
+
+        # Sensor has valid data, no need to use action-based fetching
+        _LOGGER.debug(
+            "Price sensor %s has valid %s format data, using sensor-based approach",
+            price_sensor_id,
+            sensor_format,
+        )
+        return False
+
     @callback
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
