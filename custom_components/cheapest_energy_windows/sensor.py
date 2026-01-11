@@ -546,8 +546,97 @@ class CEWPriceSensorProxy(SensorEntity):
             return "nordpool"
         elif "prices_today" in attributes or "prices_tomorrow" in attributes:
             return "entsoe"
-        # Future: Add more formats here
+        elif "today" in attributes:
+            # Tibber format: 'today' contains list of dicts with 'startsAt' key
+            today_data = attributes.get("today")
+            if isinstance(today_data, list) and len(today_data) > 0:
+                if isinstance(today_data[0], dict) and "startsAt" in today_data[0]:
+                    return "tibber"
         return None
+
+    def _normalize_tibber_to_nordpool(self, attributes):
+        """Convert Tibber format to Nord Pool format.
+
+        Tibber data format:
+        {
+            "today": [{"startsAt": "2023-12-09T03:00:00.000+02:00", "total": 0.46914, ...}],
+            "tomorrow": [...]
+        }
+
+        Nord Pool canonical format:
+        {
+            "raw_today": [{"start": "...", "end": "...", "value": 0.46914}],
+            "raw_tomorrow": [...]
+        }
+        """
+        from datetime import timedelta
+        normalized = {}
+
+        def _detect_interval(price_list):
+            """Detect interval duration from consecutive entries.
+
+            Returns interval in minutes. Defaults to 15 minutes if unable to detect.
+            """
+            if len(price_list) < 2:
+                return 15  # Default to 15 minutes for single entry
+
+            # Get first two entries to detect interval
+            first_time = dt_util.parse_datetime(price_list[0].get("startsAt", ""))
+            second_time = dt_util.parse_datetime(price_list[1].get("startsAt", ""))
+
+            if first_time and second_time:
+                delta = (second_time - first_time).total_seconds() / 60
+                # Support 15-minute or hourly intervals
+                if delta in [15, 60]:
+                    return int(delta)
+
+            return 15  # Default to 15 minutes
+
+        def _convert_price_list(price_list):
+            """Convert a list of Tibber prices to Nord Pool format."""
+            if not price_list:
+                return []
+
+            result = []
+            interval_minutes = _detect_interval(price_list)
+
+            for item in price_list:
+                starts_at = item.get("startsAt", "")
+                parsed = dt_util.parse_datetime(starts_at)
+                if parsed:
+                    # Convert to local timezone
+                    local_time = dt_util.as_local(parsed)
+                    end_time = local_time + timedelta(minutes=interval_minutes)
+                    result.append({
+                        "start": local_time.isoformat(),
+                        "end": end_time.isoformat(),
+                        "value": item.get("total", 0)
+                    })
+
+            return result
+
+        # Convert today to raw_today
+        today_data = attributes.get("today")
+        if today_data and isinstance(today_data, list):
+            normalized["raw_today"] = _convert_price_list(today_data)
+        else:
+            normalized["raw_today"] = []
+
+        # Convert tomorrow to raw_tomorrow
+        tomorrow_data = attributes.get("tomorrow")
+        if tomorrow_data and isinstance(tomorrow_data, list) and len(tomorrow_data) > 0:
+            normalized["raw_tomorrow"] = _convert_price_list(tomorrow_data)
+            normalized["tomorrow_valid"] = True
+        else:
+            normalized["raw_tomorrow"] = []
+            normalized["tomorrow_valid"] = False
+
+        # Pass through other attributes we might need
+        for key, value in attributes.items():
+            if key not in ["today", "tomorrow"]:
+                normalized[key] = value
+
+        return normalized
 
     def _normalize_entsoe_to_nordpool(self, attributes):
         """Convert ENTSO-E format to Nord Pool format."""
@@ -635,6 +724,9 @@ class CEWPriceSensorProxy(SensorEntity):
         if sensor_format == "entsoe":
             _LOGGER.debug(f"Detected ENTSO-E format from {price_sensor_id}, normalizing to Nord Pool format")
             self._attr_extra_state_attributes = self._normalize_entsoe_to_nordpool(price_sensor.attributes)
+        elif sensor_format == "tibber":
+            _LOGGER.debug(f"Detected Tibber format from {price_sensor_id}, normalizing to Nord Pool format")
+            self._attr_extra_state_attributes = self._normalize_tibber_to_nordpool(price_sensor.attributes)
         elif sensor_format == "nordpool":
             _LOGGER.debug(f"Detected Nord Pool format from {price_sensor_id}, passing through")
             self._attr_extra_state_attributes = dict(price_sensor.attributes)

@@ -18,7 +18,7 @@
           "price_sensor": "Price Sensor"
         },
         "data_description": {
-          "price_sensor": "Select the Nordpool sensor that provides your electricity price data"
+          "price_sensor": "Select the price sensor that provides your electricity price data (Nordpool, ENTSO-E, or Tibber)"
         }
       },
       "costs": {
@@ -152,8 +152,8 @@
       }
     },
     "error": {
-      "invalid_price_sensor": "The selected price sensor is invalid, missing required 'raw_today' attribute, or not properly configured. Ensure the sensor provides hourly or 15-minute price data.",
-      "no_price_sensors": "No compatible price sensors found. Please install a compatible price sensor (e.g., Nordpool, ENTSO-E). See GitHub for the full list.",
+      "invalid_price_sensor": "The selected price sensor is invalid or missing required attributes. Expected 'raw_today' (Nordpool), 'prices_today' (ENTSO-E), or 'today' (Tibber). Ensure the sensor provides hourly or 15-minute price data.",
+      "no_price_sensors": "No compatible price sensors found. Please install a compatible price sensor (e.g., Nordpool, ENTSO-E, or Tibber). See GitHub for the full list.",
       "automation_creation_failed": "Failed to create automation. You can create it manually after setup.",
       "unknown": "Unexpected error occurred"
     },
