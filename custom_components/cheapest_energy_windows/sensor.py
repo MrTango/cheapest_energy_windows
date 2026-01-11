@@ -1,9 +1,103 @@
-"""Sensor platform for Cheapest Energy Windows."""
+"""Sensor platform for Cheapest Energy Windows.
+
+This module provides sensor entities for the Cheapest Energy Windows integration:
+- CEWTodaySensor: Today's energy charging/discharging windows
+- CEWTomorrowSensor: Tomorrow's energy windows (when available)
+- CEWPriceSensorProxy: Proxy sensor that normalizes various price sources
+- CEWLastCalculationSensor: Tracks calculation updates for dashboard refresh
+
+TIBBER INTEGRATION - IMPLEMENTATION NOTES
+=========================================
+
+The Tibber integration works differently from Nord Pool and ENTSO-E sensors.
+While those sensors expose price data via entity attributes, Tibber may not
+expose price data through standard sensor attributes. Instead, Tibber provides
+price data through the Home Assistant action/service `tibber.get_prices`.
+
+Detection Logic (_should_use_tibber_action):
+    1. Check if tibber.get_prices service is registered in Home Assistant
+    2. Check if configured price sensor has valid price data in attributes
+    3. If sensor data is missing/empty and Tibber action is available, use action
+
+Fetching Logic (_fetch_tibber_prices_via_action):
+    Due to Tibber's day boundary handling, two separate API calls are required:
+    - Call 1: Today's prices (00:00 today → midnight)
+    - Call 2: Tomorrow's prices (midnight → 23:00 tomorrow)
+    Tomorrow's prices may be empty before ~13:00 CET when Tibber publishes them.
+
+API Response Format:
+    The tibber.get_prices action returns data nested under a "null" string key:
+    {
+        "prices": {
+            "null": [
+                {"start_time": "2026-01-11T00:00:00.000+01:00", "price": 0.2865},
+                {"start_time": "2026-01-11T00:15:00.000+01:00", "price": 0.274},
+                ...
+            ]
+        }
+    }
+
+Normalization (_normalize_tibber_action_response):
+    Tibber API response is converted to Nord Pool canonical format:
+    - start_time → start (ISO 8601 local time string)
+    - (calculated) → end (start + interval, typically 15 minutes)
+    - price → value (decimal EUR/kWh)
+
+TESTING PROCEDURE
+=================
+
+Manual Testing:
+    1. Prerequisites:
+       - Home Assistant with Tibber integration configured
+       - CEW integration installed with price sensor configured
+       - Access to Developer Tools > Services
+
+    2. Verify Tibber Service Availability:
+       - Go to Developer Tools > Services
+       - Search for "tibber.get_prices"
+       - If present, the action-based fallback can be used
+
+    3. Test Tibber Action Directly:
+       Service: tibber.get_prices
+       Data:
+         start: "2026-01-11T00:00:00+01:00"
+         end: "2026-01-11T23:59:59+01:00"
+
+    4. Verify CEW Detection:
+       - Check Home Assistant logs for:
+         "Tibber action available - using action-based fetching"
+         "Calling tibber.get_prices: start=..., end=..."
+         "Tibber get_prices returned X price entries"
+
+    5. Verify Data Flow:
+       - Check sensor.cew_price_sensor_proxy attributes for:
+         - raw_today: List of price entries in Nord Pool format
+         - raw_tomorrow: List of tomorrow's prices (after ~13:00 CET)
+         - tomorrow_valid: Boolean indicating tomorrow data availability
+         - tibber_action_mode: True when using action-based fetching
+
+    6. Verify Window Calculation:
+       - Check sensor.cew_today attributes for:
+         - cheapest_times: Calculated charging windows
+         - expensive_times: Calculated discharging windows
+         - state: Should be charge/discharge/idle based on current time
+
+Automated Verification:
+    - All unit tests in test_sensor.py should pass
+    - Integration tests verify Tibber to coordinator data flow
+    - No regressions in Nord Pool or ENTSO-E functionality
+
+Troubleshooting:
+    - If Tibber action fails: Check Tibber integration setup in HA
+    - If prices["null"] is empty: Verify Tibber subscription is active
+    - If tomorrow prices missing before 13:00: This is expected behavior
+    - If normalization fails: Check start_time format in API response
+"""
 from __future__ import annotations
 
 from datetime import datetime, timedelta
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 import uuid
 
 from homeassistant.components.sensor import (
@@ -60,6 +154,9 @@ from .const import (
     ATTR_CURRENT_PRICE,
     ATTR_PRICE_OVERRIDE_ACTIVE,
     ATTR_TIME_OVERRIDE_ACTIVE,
+    TIBBER_SERVICE_DOMAIN,
+    TIBBER_SERVICE_GET_PRICES,
+    TIBBER_TOMORROW_END_HOUR,
 )
 from .coordinator import CEWCoordinator
 
@@ -690,9 +787,414 @@ class CEWPriceSensorProxy(SensorEntity):
 
         return normalized
 
+    # =========================================================================
+    # TIBBER ACTION-BASED PRICE FETCHING
+    # =========================================================================
+    # The following methods implement Tibber price fetching via the Home Assistant
+    # tibber.get_prices action/service. This is used as a fallback when:
+    #   1. The configured price sensor doesn't expose price data via attributes
+    #   2. The Tibber integration is installed and tibber.get_prices is available
+    #
+    # Key methods:
+    #   - _call_tibber_get_prices(): Low-level API call wrapper
+    #   - _fetch_tibber_prices_via_action(): Orchestrates two API calls for day boundary
+    #   - _normalize_tibber_action_response(): Converts API response to Nord Pool format
+    #   - _should_use_tibber_action(): Detection logic for when to use action fallback
+    #   - _async_fetch_and_update_tibber_prices(): Async update entry point
+    # =========================================================================
+
+    async def _call_tibber_get_prices(
+        self, start: datetime, end: datetime
+    ) -> List[Dict[str, Any]]:
+        """Call the Tibber get_prices action with time range parameters.
+
+        This method calls the Home Assistant tibber.get_prices action to fetch
+        price data from the Tibber API. The response contains prices nested under
+        a "null" key which this method extracts.
+
+        Args:
+            start: Start datetime for the price range (timezone-aware)
+            end: End datetime for the price range (timezone-aware)
+
+        Returns:
+            List of price dictionaries with 'start_time' and 'price' fields,
+            or empty list on failure.
+        """
+        try:
+            # Format timestamps as ISO 8601 strings
+            start_str = start.isoformat()
+            end_str = end.isoformat()
+
+            _LOGGER.debug(
+                "Calling tibber.get_prices: start=%s, end=%s",
+                start_str,
+                end_str,
+            )
+
+            # Call the Tibber service action
+            response = await self.hass.services.async_call(
+                TIBBER_SERVICE_DOMAIN,
+                TIBBER_SERVICE_GET_PRICES,
+                {
+                    "start": start_str,
+                    "end": end_str,
+                },
+                blocking=True,
+                return_response=True,
+            )
+
+            _LOGGER.debug("Tibber get_prices response type: %s", type(response))
+
+            if not response:
+                _LOGGER.warning("Tibber get_prices returned empty response")
+                return []
+
+            # Extract prices from the nested structure
+            # Tibber returns: {"prices": {"null": [{"start_time": "...", "price": 0.123}, ...]}}
+            prices_container = response.get("prices", {})
+
+            if not prices_container:
+                _LOGGER.warning("Tibber response missing 'prices' key")
+                return []
+
+            # The prices are nested under a "null" string key
+            price_list = prices_container.get("null", [])
+
+            if not price_list:
+                _LOGGER.debug(
+                    "Tibber prices['null'] is empty. Available keys: %s",
+                    list(prices_container.keys()),
+                )
+                return []
+
+            _LOGGER.debug(
+                "Tibber get_prices returned %d price entries",
+                len(price_list),
+            )
+
+            return price_list
+
+        except Exception as err:
+            _LOGGER.error(
+                "Failed to call tibber.get_prices: %s",
+                err,
+                exc_info=True,
+            )
+            return []
+
+    async def _fetch_tibber_prices_via_action(
+        self,
+    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """Fetch Tibber prices using two API calls for day boundary handling.
+
+        Tibber requires separate API calls for today and tomorrow data due to
+        its day boundary handling. This method:
+        1. Calls API for today: from start of today (00:00) to midnight
+        2. Calls API for tomorrow: from midnight to end of tomorrow (23:00)
+
+        Returns:
+            Tuple of (today_prices, tomorrow_prices) where each is a list of
+            price dictionaries with 'start_time' and 'price' fields.
+            Returns empty lists on failure or if data is not yet available.
+        """
+        now = dt_util.now()
+
+        # Calculate time range boundaries
+        # Today: 00:00 today to 00:00 tomorrow (midnight)
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        midnight = today_start + timedelta(days=1)
+
+        # Tomorrow: 00:00 tomorrow to 23:00 tomorrow
+        tomorrow_end = midnight.replace(hour=TIBBER_TOMORROW_END_HOUR, minute=0)
+
+        _LOGGER.debug(
+            "Fetching Tibber prices - today: %s to %s, tomorrow: %s to %s",
+            today_start.isoformat(),
+            midnight.isoformat(),
+            midnight.isoformat(),
+            tomorrow_end.isoformat(),
+        )
+
+        # Call 1: Today's prices (00:00 today -> midnight)
+        today_prices = await self._call_tibber_get_prices(today_start, midnight)
+        _LOGGER.debug(
+            "Tibber today prices: %d entries",
+            len(today_prices),
+        )
+
+        # Call 2: Tomorrow's prices (midnight -> end of tomorrow)
+        # This may return empty if tomorrow's prices are not yet available
+        # (Tibber typically publishes tomorrow's prices after ~13:00 CET)
+        tomorrow_prices = await self._call_tibber_get_prices(midnight, tomorrow_end)
+        _LOGGER.debug(
+            "Tibber tomorrow prices: %d entries",
+            len(tomorrow_prices),
+        )
+
+        if not today_prices:
+            _LOGGER.warning(
+                "No today prices received from Tibber API action"
+            )
+
+        if not tomorrow_prices:
+            _LOGGER.debug(
+                "No tomorrow prices from Tibber - may not be available yet "
+                "(typically published after 13:00 CET)"
+            )
+
+        return today_prices, tomorrow_prices
+
+    def _normalize_tibber_action_response(
+        self,
+        today_prices: List[Dict[str, Any]],
+        tomorrow_prices: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Convert Tibber API action response to Nord Pool canonical format.
+
+        This normalizes the response from tibber.get_prices action which returns
+        price data in a different format than Tibber sensor attributes.
+
+        Tibber API action format (extracted from prices["null"]):
+        [
+            {"start_time": "2026-01-11T00:00:00.000+01:00", "price": 0.2865},
+            {"start_time": "2026-01-11T00:15:00.000+01:00", "price": 0.274},
+            ...
+        ]
+
+        Nord Pool canonical format:
+        {
+            "raw_today": [{"start": "...", "end": "...", "value": 0.2865}],
+            "raw_tomorrow": [...],
+            "tomorrow_valid": True/False
+        }
+
+        Args:
+            today_prices: List of price dicts from today's API call
+            tomorrow_prices: List of price dicts from tomorrow's API call
+
+        Returns:
+            Dictionary with raw_today, raw_tomorrow, and tomorrow_valid keys
+            in Nord Pool canonical format.
+        """
+        from datetime import timedelta
+
+        def _detect_interval(price_list: List[Dict[str, Any]]) -> int:
+            """Detect interval duration from consecutive entries.
+
+            Returns interval in minutes. Defaults to 15 minutes if unable to detect.
+            Tibber API typically uses 15-minute intervals.
+            """
+            if len(price_list) < 2:
+                return 15  # Default to 15 minutes for single entry
+
+            # Get first two entries to detect interval
+            first_time = dt_util.parse_datetime(price_list[0].get("start_time", ""))
+            second_time = dt_util.parse_datetime(price_list[1].get("start_time", ""))
+
+            if first_time and second_time:
+                delta = (second_time - first_time).total_seconds() / 60
+                # Support 15-minute or hourly intervals
+                if delta in [15, 60]:
+                    return int(delta)
+
+            return 15  # Default to 15 minutes (Tibber standard)
+
+        def _convert_price_list(price_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+            """Convert a list of Tibber API action prices to Nord Pool format.
+
+            Handles the mapping:
+              - start_time → start (ISO 8601 local time)
+              - (calculated) → end (start + interval)
+              - price → value
+            """
+            if not price_list:
+                return []
+
+            result = []
+            interval_minutes = _detect_interval(price_list)
+
+            for item in price_list:
+                start_time = item.get("start_time", "")
+
+                # Skip entries with missing or invalid data
+                if not start_time:
+                    _LOGGER.debug(
+                        "Skipping Tibber price entry with missing start_time: %s",
+                        item,
+                    )
+                    continue
+
+                parsed = dt_util.parse_datetime(start_time)
+                if not parsed:
+                    _LOGGER.debug(
+                        "Failed to parse Tibber start_time: %s",
+                        start_time,
+                    )
+                    continue
+
+                # Convert to local timezone
+                local_time = dt_util.as_local(parsed)
+                end_time = local_time + timedelta(minutes=interval_minutes)
+
+                # Get price value, skip if missing
+                price = item.get("price")
+                if price is None:
+                    _LOGGER.debug(
+                        "Skipping Tibber price entry with missing price: %s",
+                        item,
+                    )
+                    continue
+
+                result.append({
+                    "start": local_time.isoformat(),
+                    "end": end_time.isoformat(),
+                    "value": price,
+                })
+
+            return result
+
+        # Build normalized output
+        normalized: Dict[str, Any] = {}
+
+        # Flag to indicate this data came from Tibber action-based fetching
+        # This allows the coordinator to track the data source mode
+        normalized["tibber_action_mode"] = True
+
+        # Convert today's prices to raw_today
+        normalized["raw_today"] = _convert_price_list(today_prices)
+        _LOGGER.debug(
+            "Normalized Tibber today prices: %d entries",
+            len(normalized["raw_today"]),
+        )
+
+        # Convert tomorrow's prices to raw_tomorrow
+        if tomorrow_prices:
+            normalized["raw_tomorrow"] = _convert_price_list(tomorrow_prices)
+            normalized["tomorrow_valid"] = len(normalized["raw_tomorrow"]) > 0
+        else:
+            normalized["raw_tomorrow"] = []
+            normalized["tomorrow_valid"] = False
+
+        _LOGGER.debug(
+            "Normalized Tibber tomorrow prices: %d entries, valid: %s",
+            len(normalized["raw_tomorrow"]),
+            normalized["tomorrow_valid"],
+        )
+
+        return normalized
+
+    def _should_use_tibber_action(self) -> bool:
+        """Determine if we should use Tibber action-based fetching vs sensor-based.
+
+        This method checks:
+        1. If the tibber.get_prices service is available in Home Assistant
+        2. If the configured price sensor is missing or has no usable price data
+
+        Returns:
+            True if we should use tibber.get_prices action to fetch prices,
+            False if we should rely on sensor-based data.
+        """
+        # Check 1: Is the Tibber service available?
+        if not self.hass.services.has_service(TIBBER_SERVICE_DOMAIN, TIBBER_SERVICE_GET_PRICES):
+            _LOGGER.debug(
+                "Tibber action not available: %s.%s service not registered",
+                TIBBER_SERVICE_DOMAIN,
+                TIBBER_SERVICE_GET_PRICES,
+            )
+            return False
+
+        # Check 2: Get the configured price sensor and its data
+        price_sensor_entity = self.hass.states.get(f"text.{PREFIX}price_sensor_entity")
+        if not price_sensor_entity:
+            # No price sensor configured, but Tibber action is available - use it
+            _LOGGER.debug(
+                "No price sensor entity configured, Tibber action available - using action-based fetching"
+            )
+            return True
+
+        price_sensor_id = price_sensor_entity.state
+        if not price_sensor_id or price_sensor_id == "":
+            # Price sensor not configured, but Tibber action is available - use it
+            _LOGGER.debug(
+                "Price sensor entity not set, Tibber action available - using action-based fetching"
+            )
+            return True
+
+        # Get the actual price sensor state
+        price_sensor = self.hass.states.get(price_sensor_id)
+        if not price_sensor:
+            # Configured sensor not found, but Tibber action is available - use it
+            _LOGGER.debug(
+                "Configured price sensor %s not found, using Tibber action fallback",
+                price_sensor_id,
+            )
+            return True
+
+        # Check 3: Does the sensor have usable price data?
+        attributes = price_sensor.attributes
+        sensor_format = self._detect_sensor_format(attributes)
+
+        if sensor_format is None:
+            # Unknown format - check if it's a Tibber sensor with empty data
+            # Tibber sensors sometimes don't expose price data via attributes
+            # In this case, we should use the action-based approach
+            _LOGGER.debug(
+                "Price sensor %s has unknown format, checking for Tibber action fallback",
+                price_sensor_id,
+            )
+
+            # If Tibber service is available and sensor format is unknown,
+            # the sensor might be a Tibber sensor that doesn't expose attributes
+            return True
+
+        # Check if the detected format has actual data
+        if sensor_format == "nordpool":
+            raw_today = attributes.get("raw_today", [])
+            if not raw_today:
+                _LOGGER.debug(
+                    "Nord Pool sensor %s has empty raw_today, using Tibber action fallback",
+                    price_sensor_id,
+                )
+                return True
+
+        elif sensor_format == "entsoe":
+            prices_today = attributes.get("prices_today", [])
+            if not prices_today:
+                _LOGGER.debug(
+                    "ENTSO-E sensor %s has empty prices_today, using Tibber action fallback",
+                    price_sensor_id,
+                )
+                return True
+
+        elif sensor_format == "tibber":
+            today_data = attributes.get("today", [])
+            if not today_data:
+                _LOGGER.debug(
+                    "Tibber sensor %s has empty today data, using Tibber action fallback",
+                    price_sensor_id,
+                )
+                return True
+
+        # Sensor has valid data, no need to use action-based fetching
+        _LOGGER.debug(
+            "Price sensor %s has valid %s format data, using sensor-based approach",
+            price_sensor_id,
+            sensor_format,
+        )
+        return False
+
     @callback
     def _handle_coordinator_update(self) -> None:
-        """Handle updated data from the coordinator."""
+        """Handle updated data from the coordinator.
+
+        This method handles price data from multiple sources:
+        1. Sensor-based: Nord Pool, ENTSO-E, or Tibber sensors with attribute data
+        2. Action-based: Tibber API action (tibber.get_prices) for cases where
+           sensor attributes don't contain price data
+
+        The method first tries sensor-based data, then falls back to Tibber action
+        if the tibber.get_prices service is available and sensor data is missing.
+        """
         if not self.coordinator.data:
             return
 
@@ -700,22 +1202,38 @@ class CEWPriceSensorProxy(SensorEntity):
         price_sensor_entity = self.hass.states.get(f"text.{PREFIX}price_sensor_entity")
         if not price_sensor_entity:
             _LOGGER.warning("Price sensor entity text input not found")
+            # Check if we can use Tibber action as fallback
+            if self._should_use_tibber_action():
+                _LOGGER.info("No price sensor configured, attempting Tibber action-based fetching")
+                self.hass.async_create_task(self._async_fetch_and_update_tibber_prices())
             return
 
         price_sensor_id = price_sensor_entity.state
         if not price_sensor_id or price_sensor_id == "":
             _LOGGER.warning("Price sensor entity not configured")
+            # Check if we can use Tibber action as fallback
+            if self._should_use_tibber_action():
+                _LOGGER.info("Price sensor not set, attempting Tibber action-based fetching")
+                self.hass.async_create_task(self._async_fetch_and_update_tibber_prices())
             return
 
         # Get the actual price sensor state
         price_sensor = self.hass.states.get(price_sensor_id)
         if not price_sensor:
             _LOGGER.warning(f"Configured price sensor {price_sensor_id} not found")
-            self._attr_native_value = STATE_UNAVAILABLE
-            self.async_write_ha_state()
+            # Check if we can use Tibber action as fallback
+            if self._should_use_tibber_action():
+                _LOGGER.info(
+                    "Price sensor %s not found, attempting Tibber action-based fetching",
+                    price_sensor_id,
+                )
+                self.hass.async_create_task(self._async_fetch_and_update_tibber_prices())
+            else:
+                self._attr_native_value = STATE_UNAVAILABLE
+                self.async_write_ha_state()
             return
 
-        # Mirror the state
+        # Mirror the state from the price sensor
         self._attr_native_value = price_sensor.state
 
         # Detect format and normalize if needed
@@ -724,18 +1242,96 @@ class CEWPriceSensorProxy(SensorEntity):
         if sensor_format == "entsoe":
             _LOGGER.debug(f"Detected ENTSO-E format from {price_sensor_id}, normalizing to Nord Pool format")
             self._attr_extra_state_attributes = self._normalize_entsoe_to_nordpool(price_sensor.attributes)
+            _LOGGER.debug(f"Proxy sensor updated from {price_sensor_id}, state: {self._attr_native_value}")
+            self.async_write_ha_state()
+
         elif sensor_format == "tibber":
             _LOGGER.debug(f"Detected Tibber format from {price_sensor_id}, normalizing to Nord Pool format")
             self._attr_extra_state_attributes = self._normalize_tibber_to_nordpool(price_sensor.attributes)
+            _LOGGER.debug(f"Proxy sensor updated from {price_sensor_id}, state: {self._attr_native_value}")
+            self.async_write_ha_state()
+
         elif sensor_format == "nordpool":
             _LOGGER.debug(f"Detected Nord Pool format from {price_sensor_id}, passing through")
             self._attr_extra_state_attributes = dict(price_sensor.attributes)
-        else:
-            _LOGGER.warning(f"Unknown price sensor format from {price_sensor_id}, passing through as-is")
-            self._attr_extra_state_attributes = dict(price_sensor.attributes)
+            _LOGGER.debug(f"Proxy sensor updated from {price_sensor_id}, state: {self._attr_native_value}")
+            self.async_write_ha_state()
 
-        _LOGGER.debug(f"Proxy sensor updated from {price_sensor_id}, state: {self._attr_native_value}")
-        self.async_write_ha_state()
+        else:
+            # Unknown format - check if we should use Tibber action fallback
+            _LOGGER.debug(
+                "Unknown price sensor format from %s, checking Tibber action fallback",
+                price_sensor_id,
+            )
+            if self._should_use_tibber_action():
+                _LOGGER.info(
+                    "Sensor %s has unknown format, using Tibber action-based fetching",
+                    price_sensor_id,
+                )
+                self.hass.async_create_task(self._async_fetch_and_update_tibber_prices())
+            else:
+                # No Tibber fallback available, pass through as-is
+                _LOGGER.warning(
+                    "Unknown price sensor format from %s and no Tibber action available, passing through as-is",
+                    price_sensor_id,
+                )
+                self._attr_extra_state_attributes = dict(price_sensor.attributes)
+                _LOGGER.debug(f"Proxy sensor updated from {price_sensor_id}, state: {self._attr_native_value}")
+                self.async_write_ha_state()
+
+    async def _async_fetch_and_update_tibber_prices(self) -> None:
+        """Async method to fetch Tibber prices via action and update sensor state.
+
+        This method is called when sensor-based price data is not available but
+        the tibber.get_prices action is available. It fetches prices using the
+        Tibber API action, normalizes them to Nord Pool format, and updates
+        the sensor attributes.
+        """
+        try:
+            _LOGGER.debug("Starting Tibber action-based price fetching")
+
+            # Fetch prices using the Tibber action (two API calls for day boundary)
+            today_prices, tomorrow_prices = await self._fetch_tibber_prices_via_action()
+
+            if not today_prices:
+                _LOGGER.warning(
+                    "Tibber action returned no today prices, cannot update proxy sensor"
+                )
+                self._attr_native_value = STATE_UNAVAILABLE
+                self._attr_extra_state_attributes = {}
+                self.async_write_ha_state()
+                return
+
+            # Normalize to Nord Pool canonical format
+            normalized = self._normalize_tibber_action_response(today_prices, tomorrow_prices)
+
+            # Update sensor attributes with normalized data
+            self._attr_extra_state_attributes = normalized
+
+            # Set state to available (use current price if we can determine it)
+            # For now, set to a placeholder state indicating data is available
+            if normalized.get("raw_today"):
+                self._attr_native_value = STATE_AVAILABLE
+            else:
+                self._attr_native_value = STATE_UNAVAILABLE
+
+            _LOGGER.info(
+                "Tibber action-based price fetch complete: %d today entries, %d tomorrow entries",
+                len(normalized.get("raw_today", [])),
+                len(normalized.get("raw_tomorrow", [])),
+            )
+
+            self.async_write_ha_state()
+
+        except Exception as err:
+            _LOGGER.error(
+                "Failed to fetch and update Tibber prices via action: %s",
+                err,
+                exc_info=True,
+            )
+            self._attr_native_value = STATE_UNAVAILABLE
+            self._attr_extra_state_attributes = {}
+            self.async_write_ha_state()
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
