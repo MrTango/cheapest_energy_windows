@@ -60,6 +60,8 @@ from .const import (
     ATTR_CURRENT_PRICE,
     ATTR_PRICE_OVERRIDE_ACTIVE,
     ATTR_TIME_OVERRIDE_ACTIVE,
+    TIBBER_SERVICE_DOMAIN,
+    TIBBER_SERVICE_GET_PRICES,
 )
 from .coordinator import CEWCoordinator
 
@@ -689,6 +691,85 @@ class CEWPriceSensorProxy(SensorEntity):
                 normalized[key] = value
 
         return normalized
+
+    async def _call_tibber_get_prices(
+        self, start: datetime, end: datetime
+    ) -> List[Dict[str, Any]]:
+        """Call the Tibber get_prices action with time range parameters.
+
+        This method calls the Home Assistant tibber.get_prices action to fetch
+        price data from the Tibber API. The response contains prices nested under
+        a "null" key which this method extracts.
+
+        Args:
+            start: Start datetime for the price range (timezone-aware)
+            end: End datetime for the price range (timezone-aware)
+
+        Returns:
+            List of price dictionaries with 'start_time' and 'price' fields,
+            or empty list on failure.
+        """
+        try:
+            # Format timestamps as ISO 8601 strings
+            start_str = start.isoformat()
+            end_str = end.isoformat()
+
+            _LOGGER.debug(
+                "Calling tibber.get_prices: start=%s, end=%s",
+                start_str,
+                end_str,
+            )
+
+            # Call the Tibber service action
+            response = await self.hass.services.async_call(
+                TIBBER_SERVICE_DOMAIN,
+                TIBBER_SERVICE_GET_PRICES,
+                {
+                    "start": start_str,
+                    "end": end_str,
+                },
+                blocking=True,
+                return_response=True,
+            )
+
+            _LOGGER.debug("Tibber get_prices response type: %s", type(response))
+
+            if not response:
+                _LOGGER.warning("Tibber get_prices returned empty response")
+                return []
+
+            # Extract prices from the nested structure
+            # Tibber returns: {"prices": {"null": [{"start_time": "...", "price": 0.123}, ...]}}
+            prices_container = response.get("prices", {})
+
+            if not prices_container:
+                _LOGGER.warning("Tibber response missing 'prices' key")
+                return []
+
+            # The prices are nested under a "null" string key
+            price_list = prices_container.get("null", [])
+
+            if not price_list:
+                _LOGGER.debug(
+                    "Tibber prices['null'] is empty. Available keys: %s",
+                    list(prices_container.keys()),
+                )
+                return []
+
+            _LOGGER.debug(
+                "Tibber get_prices returned %d price entries",
+                len(price_list),
+            )
+
+            return price_list
+
+        except Exception as err:
+            _LOGGER.error(
+                "Failed to call tibber.get_prices: %s",
+                err,
+                exc_info=True,
+            )
+            return []
 
     @callback
     def _handle_coordinator_update(self) -> None:
