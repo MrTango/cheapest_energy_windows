@@ -1,4 +1,98 @@
-"""Sensor platform for Cheapest Energy Windows."""
+"""Sensor platform for Cheapest Energy Windows.
+
+This module provides sensor entities for the Cheapest Energy Windows integration:
+- CEWTodaySensor: Today's energy charging/discharging windows
+- CEWTomorrowSensor: Tomorrow's energy windows (when available)
+- CEWPriceSensorProxy: Proxy sensor that normalizes various price sources
+- CEWLastCalculationSensor: Tracks calculation updates for dashboard refresh
+
+TIBBER INTEGRATION - IMPLEMENTATION NOTES
+=========================================
+
+The Tibber integration works differently from Nord Pool and ENTSO-E sensors.
+While those sensors expose price data via entity attributes, Tibber may not
+expose price data through standard sensor attributes. Instead, Tibber provides
+price data through the Home Assistant action/service `tibber.get_prices`.
+
+Detection Logic (_should_use_tibber_action):
+    1. Check if tibber.get_prices service is registered in Home Assistant
+    2. Check if configured price sensor has valid price data in attributes
+    3. If sensor data is missing/empty and Tibber action is available, use action
+
+Fetching Logic (_fetch_tibber_prices_via_action):
+    Due to Tibber's day boundary handling, two separate API calls are required:
+    - Call 1: Today's prices (00:00 today → midnight)
+    - Call 2: Tomorrow's prices (midnight → 23:00 tomorrow)
+    Tomorrow's prices may be empty before ~13:00 CET when Tibber publishes them.
+
+API Response Format:
+    The tibber.get_prices action returns data nested under a "null" string key:
+    {
+        "prices": {
+            "null": [
+                {"start_time": "2026-01-11T00:00:00.000+01:00", "price": 0.2865},
+                {"start_time": "2026-01-11T00:15:00.000+01:00", "price": 0.274},
+                ...
+            ]
+        }
+    }
+
+Normalization (_normalize_tibber_action_response):
+    Tibber API response is converted to Nord Pool canonical format:
+    - start_time → start (ISO 8601 local time string)
+    - (calculated) → end (start + interval, typically 15 minutes)
+    - price → value (decimal EUR/kWh)
+
+TESTING PROCEDURE
+=================
+
+Manual Testing:
+    1. Prerequisites:
+       - Home Assistant with Tibber integration configured
+       - CEW integration installed with price sensor configured
+       - Access to Developer Tools > Services
+
+    2. Verify Tibber Service Availability:
+       - Go to Developer Tools > Services
+       - Search for "tibber.get_prices"
+       - If present, the action-based fallback can be used
+
+    3. Test Tibber Action Directly:
+       Service: tibber.get_prices
+       Data:
+         start: "2026-01-11T00:00:00+01:00"
+         end: "2026-01-11T23:59:59+01:00"
+
+    4. Verify CEW Detection:
+       - Check Home Assistant logs for:
+         "Tibber action available - using action-based fetching"
+         "Calling tibber.get_prices: start=..., end=..."
+         "Tibber get_prices returned X price entries"
+
+    5. Verify Data Flow:
+       - Check sensor.cew_price_sensor_proxy attributes for:
+         - raw_today: List of price entries in Nord Pool format
+         - raw_tomorrow: List of tomorrow's prices (after ~13:00 CET)
+         - tomorrow_valid: Boolean indicating tomorrow data availability
+         - tibber_action_mode: True when using action-based fetching
+
+    6. Verify Window Calculation:
+       - Check sensor.cew_today attributes for:
+         - cheapest_times: Calculated charging windows
+         - expensive_times: Calculated discharging windows
+         - state: Should be charge/discharge/idle based on current time
+
+Automated Verification:
+    - All unit tests in test_sensor.py should pass
+    - Integration tests verify Tibber to coordinator data flow
+    - No regressions in Nord Pool or ENTSO-E functionality
+
+Troubleshooting:
+    - If Tibber action fails: Check Tibber integration setup in HA
+    - If prices["null"] is empty: Verify Tibber subscription is active
+    - If tomorrow prices missing before 13:00: This is expected behavior
+    - If normalization fails: Check start_time format in API response
+"""
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -692,6 +786,22 @@ class CEWPriceSensorProxy(SensorEntity):
                 normalized[key] = value
 
         return normalized
+
+    # =========================================================================
+    # TIBBER ACTION-BASED PRICE FETCHING
+    # =========================================================================
+    # The following methods implement Tibber price fetching via the Home Assistant
+    # tibber.get_prices action/service. This is used as a fallback when:
+    #   1. The configured price sensor doesn't expose price data via attributes
+    #   2. The Tibber integration is installed and tibber.get_prices is available
+    #
+    # Key methods:
+    #   - _call_tibber_get_prices(): Low-level API call wrapper
+    #   - _fetch_tibber_prices_via_action(): Orchestrates two API calls for day boundary
+    #   - _normalize_tibber_action_response(): Converts API response to Nord Pool format
+    #   - _should_use_tibber_action(): Detection logic for when to use action fallback
+    #   - _async_fetch_and_update_tibber_prices(): Async update entry point
+    # =========================================================================
 
     async def _call_tibber_get_prices(
         self, start: datetime, end: datetime
