@@ -1071,7 +1071,16 @@ class CEWPriceSensorProxy(SensorEntity):
 
     @callback
     def _handle_coordinator_update(self) -> None:
-        """Handle updated data from the coordinator."""
+        """Handle updated data from the coordinator.
+
+        This method handles price data from multiple sources:
+        1. Sensor-based: Nord Pool, ENTSO-E, or Tibber sensors with attribute data
+        2. Action-based: Tibber API action (tibber.get_prices) for cases where
+           sensor attributes don't contain price data
+
+        The method first tries sensor-based data, then falls back to Tibber action
+        if the tibber.get_prices service is available and sensor data is missing.
+        """
         if not self.coordinator.data:
             return
 
@@ -1079,22 +1088,38 @@ class CEWPriceSensorProxy(SensorEntity):
         price_sensor_entity = self.hass.states.get(f"text.{PREFIX}price_sensor_entity")
         if not price_sensor_entity:
             _LOGGER.warning("Price sensor entity text input not found")
+            # Check if we can use Tibber action as fallback
+            if self._should_use_tibber_action():
+                _LOGGER.info("No price sensor configured, attempting Tibber action-based fetching")
+                self.hass.async_create_task(self._async_fetch_and_update_tibber_prices())
             return
 
         price_sensor_id = price_sensor_entity.state
         if not price_sensor_id or price_sensor_id == "":
             _LOGGER.warning("Price sensor entity not configured")
+            # Check if we can use Tibber action as fallback
+            if self._should_use_tibber_action():
+                _LOGGER.info("Price sensor not set, attempting Tibber action-based fetching")
+                self.hass.async_create_task(self._async_fetch_and_update_tibber_prices())
             return
 
         # Get the actual price sensor state
         price_sensor = self.hass.states.get(price_sensor_id)
         if not price_sensor:
             _LOGGER.warning(f"Configured price sensor {price_sensor_id} not found")
-            self._attr_native_value = STATE_UNAVAILABLE
-            self.async_write_ha_state()
+            # Check if we can use Tibber action as fallback
+            if self._should_use_tibber_action():
+                _LOGGER.info(
+                    "Price sensor %s not found, attempting Tibber action-based fetching",
+                    price_sensor_id,
+                )
+                self.hass.async_create_task(self._async_fetch_and_update_tibber_prices())
+            else:
+                self._attr_native_value = STATE_UNAVAILABLE
+                self.async_write_ha_state()
             return
 
-        # Mirror the state
+        # Mirror the state from the price sensor
         self._attr_native_value = price_sensor.state
 
         # Detect format and normalize if needed
@@ -1103,18 +1128,96 @@ class CEWPriceSensorProxy(SensorEntity):
         if sensor_format == "entsoe":
             _LOGGER.debug(f"Detected ENTSO-E format from {price_sensor_id}, normalizing to Nord Pool format")
             self._attr_extra_state_attributes = self._normalize_entsoe_to_nordpool(price_sensor.attributes)
+            _LOGGER.debug(f"Proxy sensor updated from {price_sensor_id}, state: {self._attr_native_value}")
+            self.async_write_ha_state()
+
         elif sensor_format == "tibber":
             _LOGGER.debug(f"Detected Tibber format from {price_sensor_id}, normalizing to Nord Pool format")
             self._attr_extra_state_attributes = self._normalize_tibber_to_nordpool(price_sensor.attributes)
+            _LOGGER.debug(f"Proxy sensor updated from {price_sensor_id}, state: {self._attr_native_value}")
+            self.async_write_ha_state()
+
         elif sensor_format == "nordpool":
             _LOGGER.debug(f"Detected Nord Pool format from {price_sensor_id}, passing through")
             self._attr_extra_state_attributes = dict(price_sensor.attributes)
-        else:
-            _LOGGER.warning(f"Unknown price sensor format from {price_sensor_id}, passing through as-is")
-            self._attr_extra_state_attributes = dict(price_sensor.attributes)
+            _LOGGER.debug(f"Proxy sensor updated from {price_sensor_id}, state: {self._attr_native_value}")
+            self.async_write_ha_state()
 
-        _LOGGER.debug(f"Proxy sensor updated from {price_sensor_id}, state: {self._attr_native_value}")
-        self.async_write_ha_state()
+        else:
+            # Unknown format - check if we should use Tibber action fallback
+            _LOGGER.debug(
+                "Unknown price sensor format from %s, checking Tibber action fallback",
+                price_sensor_id,
+            )
+            if self._should_use_tibber_action():
+                _LOGGER.info(
+                    "Sensor %s has unknown format, using Tibber action-based fetching",
+                    price_sensor_id,
+                )
+                self.hass.async_create_task(self._async_fetch_and_update_tibber_prices())
+            else:
+                # No Tibber fallback available, pass through as-is
+                _LOGGER.warning(
+                    "Unknown price sensor format from %s and no Tibber action available, passing through as-is",
+                    price_sensor_id,
+                )
+                self._attr_extra_state_attributes = dict(price_sensor.attributes)
+                _LOGGER.debug(f"Proxy sensor updated from {price_sensor_id}, state: {self._attr_native_value}")
+                self.async_write_ha_state()
+
+    async def _async_fetch_and_update_tibber_prices(self) -> None:
+        """Async method to fetch Tibber prices via action and update sensor state.
+
+        This method is called when sensor-based price data is not available but
+        the tibber.get_prices action is available. It fetches prices using the
+        Tibber API action, normalizes them to Nord Pool format, and updates
+        the sensor attributes.
+        """
+        try:
+            _LOGGER.debug("Starting Tibber action-based price fetching")
+
+            # Fetch prices using the Tibber action (two API calls for day boundary)
+            today_prices, tomorrow_prices = await self._fetch_tibber_prices_via_action()
+
+            if not today_prices:
+                _LOGGER.warning(
+                    "Tibber action returned no today prices, cannot update proxy sensor"
+                )
+                self._attr_native_value = STATE_UNAVAILABLE
+                self._attr_extra_state_attributes = {}
+                self.async_write_ha_state()
+                return
+
+            # Normalize to Nord Pool canonical format
+            normalized = self._normalize_tibber_action_response(today_prices, tomorrow_prices)
+
+            # Update sensor attributes with normalized data
+            self._attr_extra_state_attributes = normalized
+
+            # Set state to available (use current price if we can determine it)
+            # For now, set to a placeholder state indicating data is available
+            if normalized.get("raw_today"):
+                self._attr_native_value = STATE_AVAILABLE
+            else:
+                self._attr_native_value = STATE_UNAVAILABLE
+
+            _LOGGER.info(
+                "Tibber action-based price fetch complete: %d today entries, %d tomorrow entries",
+                len(normalized.get("raw_today", [])),
+                len(normalized.get("raw_tomorrow", [])),
+            )
+
+            self.async_write_ha_state()
+
+        except Exception as err:
+            _LOGGER.error(
+                "Failed to fetch and update Tibber prices via action: %s",
+                err,
+                exc_info=True,
+            )
+            self._attr_native_value = STATE_UNAVAILABLE
+            self._attr_extra_state_attributes = {}
+            self.async_write_ha_state()
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""

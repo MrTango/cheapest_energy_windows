@@ -3,7 +3,7 @@
   "spec": "003-the-dectection-io-the-tibber-integration-does-not-",
   "state": "building",
   "subtasks": {
-    "completed": 4,
+    "completed": 5,
     "total": 9,
     "in_progress": 1,
     "failed": 0
@@ -18,8 +18,8 @@
     "max": 1
   },
   "session": {
-    "number": 5,
+    "number": 6,
     "started_at": "2026-01-11T22:56:59.000427"
   },
-  "last_update": "2026-01-11T23:04:12.868291"
+  "last_update": "2026-01-11T23:06:11.970380"
 }
