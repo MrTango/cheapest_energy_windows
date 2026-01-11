@@ -1,11 +1,11 @@
 {
   "active": true,
   "spec": "002-tibber-support-for-dynamic-prices-analog-to-existi",
-  "state": "building",
+  "state": "complete",
   "subtasks": {
-    "completed": 7,
+    "completed": 9,
     "total": 9,
-    "in_progress": 1,
+    "in_progress": 0,
     "failed": 0
   },
   "phase": {
@@ -18,8 +18,8 @@
     "max": 1
   },
   "session": {
-    "number": 8,
+    "number": 9,
     "started_at": "2026-01-11T01:46:19.698193"
   },
-  "last_update": "2026-01-11T01:57:14.699867"
+  "last_update": "2026-01-11T02:01:24.982381"
 }
