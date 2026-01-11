@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 import uuid
 
 from homeassistant.components.sensor import (
@@ -62,6 +62,7 @@ from .const import (
     ATTR_TIME_OVERRIDE_ACTIVE,
     TIBBER_SERVICE_DOMAIN,
     TIBBER_SERVICE_GET_PRICES,
+    TIBBER_TOMORROW_END_HOUR,
 )
 from .coordinator import CEWCoordinator
 
@@ -770,6 +771,68 @@ class CEWPriceSensorProxy(SensorEntity):
                 exc_info=True,
             )
             return []
+
+    async def _fetch_tibber_prices_via_action(
+        self,
+    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """Fetch Tibber prices using two API calls for day boundary handling.
+
+        Tibber requires separate API calls for today and tomorrow data due to
+        its day boundary handling. This method:
+        1. Calls API for today: from start of today (00:00) to midnight
+        2. Calls API for tomorrow: from midnight to end of tomorrow (23:00)
+
+        Returns:
+            Tuple of (today_prices, tomorrow_prices) where each is a list of
+            price dictionaries with 'start_time' and 'price' fields.
+            Returns empty lists on failure or if data is not yet available.
+        """
+        now = dt_util.now()
+
+        # Calculate time range boundaries
+        # Today: 00:00 today to 00:00 tomorrow (midnight)
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        midnight = today_start + timedelta(days=1)
+
+        # Tomorrow: 00:00 tomorrow to 23:00 tomorrow
+        tomorrow_end = midnight.replace(hour=TIBBER_TOMORROW_END_HOUR, minute=0)
+
+        _LOGGER.debug(
+            "Fetching Tibber prices - today: %s to %s, tomorrow: %s to %s",
+            today_start.isoformat(),
+            midnight.isoformat(),
+            midnight.isoformat(),
+            tomorrow_end.isoformat(),
+        )
+
+        # Call 1: Today's prices (00:00 today -> midnight)
+        today_prices = await self._call_tibber_get_prices(today_start, midnight)
+        _LOGGER.debug(
+            "Tibber today prices: %d entries",
+            len(today_prices),
+        )
+
+        # Call 2: Tomorrow's prices (midnight -> end of tomorrow)
+        # This may return empty if tomorrow's prices are not yet available
+        # (Tibber typically publishes tomorrow's prices after ~13:00 CET)
+        tomorrow_prices = await self._call_tibber_get_prices(midnight, tomorrow_end)
+        _LOGGER.debug(
+            "Tibber tomorrow prices: %d entries",
+            len(tomorrow_prices),
+        )
+
+        if not today_prices:
+            _LOGGER.warning(
+                "No today prices received from Tibber API action"
+            )
+
+        if not tomorrow_prices:
+            _LOGGER.debug(
+                "No tomorrow prices from Tibber - may not be available yet "
+                "(typically published after 13:00 CET)"
+            )
+
+        return today_prices, tomorrow_prices
 
     @callback
     def _handle_coordinator_update(self) -> None:
