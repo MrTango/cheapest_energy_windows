@@ -1,4 +1,4 @@
-# Cheapest Energy Windows for Home Assistant
+# Cheapest Energy Windows for Home Assistant (Tibber Fork)
 
 [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=cheapest-energy-windows&repository=cheapest_energy_windows&category=integration)
 [![GitHub Release](https://img.shields.io/github/release/cheapest-energy-windows/cheapest_energy_windows.svg)](https://github.com/cheapest-energy-windows/cheapest_energy_windows/releases)
@@ -66,11 +66,13 @@ This integration works with dynamic electricity pricing from multiple sources:
 ### Supported Integrations
 - **[Nord Pool](https://github.com/custom-components/nordpool)** - Hourly electricity prices for Nordic and Baltic countries
 - **[ENTSO-E Transparency Platform](https://github.com/JaccoR/hass-entso-e)** - European electricity market data with 15-minute intervals
+- **[Tibber](https://www.tibber.com/)** - Real-time electricity prices and smart home integration
 
 ### Important Requirements
 - **15-minute interval data required** - Even if you have an hourly pricing contract, the integration needs 15-minute price data for optimal calculations
 - **Automatic aggregation** - The system automatically aggregates 15-minute data into hourly windows when configured for 1-hour intervals
 - **EUR/kWh units only** - Price sensors must provide prices in EUR/kWh (not cents)
+- **Tibber Support** - This fork includes support for Tibber's real-time pricing and smart home features
 
 ### Time Granularity Options
 - **15-minute windows** (96 windows per day) - For contracts with 15-minute pricing intervals
