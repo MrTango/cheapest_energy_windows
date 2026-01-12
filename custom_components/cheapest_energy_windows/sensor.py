@@ -850,6 +850,7 @@ class CEWPriceSensorProxy(SensorEntity):
                 return_response=True,
             )
             _LOGGER.debug("Tibber get_prices response type: %s", type(response))
+            _LOGGER.debug("Tibber get_prices response keys: %s", list(response.keys()) if response else "None")
 
             if not response:
                 _LOGGER.warning("Tibber get_prices returned empty response")
@@ -858,19 +859,25 @@ class CEWPriceSensorProxy(SensorEntity):
             # Extract prices from the nested structure
             # Tibber returns: {"prices": {"null": [{"start_time": "...", "price": 0.123}, ...]}}
             prices_container = response.get("prices", {})
+            _LOGGER.debug("Tibber prices_container keys: %s", list(prices_container.keys()) if prices_container else "None")
 
             if not prices_container:
-                _LOGGER.warning("Tibber response missing 'prices' key")
+                _LOGGER.warning("Tibber response missing 'prices' key. Full response: %s", response)
                 return []
 
             # The prices are nested under a "null" string key
             price_list = prices_container.get("null", [])
+            _LOGGER.debug("Tibber prices['null'] count: %d", len(price_list))
 
             if not price_list:
                 _LOGGER.debug(
                     "Tibber prices['null'] is empty. Available keys: %s",
                     list(prices_container.keys()),
                 )
+                _LOGGER.debug("Tibber prices['null'] value: %s", prices_container.get("null"))
+                # Log all prices_container values for debugging
+                for key, value in prices_container.items():
+                    _LOGGER.debug("Tibber prices[%s] type: %s, count: %s", repr(key), type(value).__name__, len(value) if isinstance(value, (list, dict)) else "N/A")
                 return []
 
             _LOGGER.debug(
@@ -939,13 +946,23 @@ class CEWPriceSensorProxy(SensorEntity):
 
         if not all_prices:
             _LOGGER.warning(
-                "No prices received from Tibber API action"
+                "No prices received from Tibber API action. "
+                "Check Tibber subscription status and API connectivity."
             )
             return [], []
+
+        _LOGGER.debug(
+            "Tibber API returned %d total price entries",
+            len(all_prices),
+        )
+        # Log first few entries for debugging
+        if all_prices:
+            _LOGGER.debug("First 3 Tibber entries: %s", all_prices[:3])
 
         # Split prices into today and tomorrow based on start_time date
         today_date = today_start.date()
         tomorrow_date = tomorrow.date()
+        _LOGGER.debug("Date range: today=%s, tomorrow=%s", today_date, tomorrow_date)
 
         today_prices = []
         tomorrow_prices = []
@@ -1136,7 +1153,14 @@ class CEWPriceSensorProxy(SensorEntity):
             False if we should rely on sensor-based data.
         """
         # Check 1: Is the Tibber service available?
-        if not self.hass.services.has_service(TIBBER_SERVICE_DOMAIN, TIBBER_SERVICE_GET_PRICES):
+        tibber_service_available = self.hass.services.has_service(TIBBER_SERVICE_DOMAIN, TIBBER_SERVICE_GET_PRICES)
+        _LOGGER.debug(
+            "Tibber service availability check: %s.%s = %s",
+            TIBBER_SERVICE_DOMAIN,
+            TIBBER_SERVICE_GET_PRICES,
+            tibber_service_available,
+        )
+        if not tibber_service_available:
             _LOGGER.debug(
                 "Tibber action not available: %s.%s service not registered",
                 TIBBER_SERVICE_DOMAIN,
@@ -1145,24 +1169,42 @@ class CEWPriceSensorProxy(SensorEntity):
             return False
 
         # Check 2: Get the configured price sensor and its data
-        price_sensor_entity = self.hass.states.get(f"text.{PREFIX}price_sensor_entity")
+        price_sensor_entity_id = f"text.{PREFIX}price_sensor_entity"
+        price_sensor_entity = self.hass.states.get(price_sensor_entity_id)
+        _LOGGER.debug(
+            "Price sensor entity check: entity_id=%s, state=%s",
+            price_sensor_entity_id,
+            price_sensor_entity.state if price_sensor_entity else "NOT_FOUND",
+        )
         if not price_sensor_entity:
             # No price sensor configured, but Tibber action is available - use it
             _LOGGER.debug(
-                "No price sensor entity configured, Tibber action available - using action-based fetching"
+                "No price sensor entity configured (text.cew_price_sensor_entity not found), "
+                "Tibber action available - using action-based fetching"
             )
             return True
 
         price_sensor_id = price_sensor_entity.state
+        _LOGGER.debug(
+            "Price sensor configured: id=%s, is_empty=%s",
+            price_sensor_id,
+            not price_sensor_id or price_sensor_id == "",
+        )
         if not price_sensor_id or price_sensor_id == "":
             # Price sensor not configured, but Tibber action is available - use it
             _LOGGER.debug(
-                "Price sensor entity not set, Tibber action available - using action-based fetching"
+                "Price sensor entity not set (empty state), "
+                "Tibber action available - using action-based fetching"
             )
             return True
 
         # Get the actual price sensor state
         price_sensor = self.hass.states.get(price_sensor_id)
+        _LOGGER.debug(
+            "Price sensor lookup: id=%s, found=%s",
+            price_sensor_id,
+            price_sensor is not None,
+        )
         if not price_sensor:
             # Configured sensor not found, but Tibber action is available - use it
             _LOGGER.debug(
@@ -1174,6 +1216,11 @@ class CEWPriceSensorProxy(SensorEntity):
         # Check 3: Does the sensor have usable price data?
         attributes = price_sensor.attributes
         sensor_format = self._detect_sensor_format(attributes)
+        _LOGGER.debug(
+            "Sensor format detection: format=%s, attributes_keys=%s",
+            sensor_format,
+            list(attributes.keys()) if attributes else "empty",
+        )
 
         if sensor_format is None:
             # Unknown format - check if it's a Tibber sensor with empty data
@@ -1191,6 +1238,10 @@ class CEWPriceSensorProxy(SensorEntity):
         # Check if the detected format has actual data
         if sensor_format == "nordpool":
             raw_today = attributes.get("raw_today", [])
+            _LOGGER.debug(
+                "Nord Pool sensor check: raw_today count=%d",
+                len(raw_today) if raw_today else 0,
+            )
             if not raw_today:
                 _LOGGER.debug(
                     "Nord Pool sensor %s has empty raw_today, using Tibber action fallback",
@@ -1200,6 +1251,10 @@ class CEWPriceSensorProxy(SensorEntity):
 
         elif sensor_format == "entsoe":
             prices_today = attributes.get("prices_today", [])
+            _LOGGER.debug(
+                "ENTSO-E sensor check: prices_today count=%d",
+                len(prices_today) if prices_today else 0,
+            )
             if not prices_today:
                 _LOGGER.debug(
                     "ENTSO-E sensor %s has empty prices_today, using Tibber action fallback",
@@ -1209,6 +1264,10 @@ class CEWPriceSensorProxy(SensorEntity):
 
         elif sensor_format == "tibber":
             today_data = attributes.get("today", [])
+            _LOGGER.debug(
+                "Tibber sensor check: today count=%d",
+                len(today_data) if today_data else 0,
+            )
             if not today_data:
                 _LOGGER.debug(
                     "Tibber sensor %s has empty today data, using Tibber action fallback",
@@ -1218,7 +1277,7 @@ class CEWPriceSensorProxy(SensorEntity):
 
         # Sensor has valid data, no need to use action-based fetching
         _LOGGER.debug(
-            "Price sensor %s has valid %s format data, using sensor-based approach",
+            "Price sensor %s has valid %s format data with actual data, using sensor-based approach",
             price_sensor_id,
             sensor_format,
         )
@@ -1236,13 +1295,23 @@ class CEWPriceSensorProxy(SensorEntity):
         The method first tries sensor-based data, then falls back to Tibber action
         if the tibber.get_prices service is available and sensor data is missing.
         """
+        _LOGGER.debug("="*60)
+        _LOGGER.debug("PROXY SENSOR COORDINATOR UPDATE")
+        _LOGGER.debug("Coordinator data exists: %s", self.coordinator.data is not None)
+
         if not self.coordinator.data:
+            _LOGGER.debug("No coordinator data, returning")
             return
 
         # Get the configured price sensor entity_id
-        price_sensor_entity = self.hass.states.get(f"text.{PREFIX}price_sensor_entity")
+        price_sensor_entity_id = f"text.{PREFIX}price_sensor_entity"
+        price_sensor_entity = self.hass.states.get(price_sensor_entity_id)
+        _LOGGER.debug(
+            "Price sensor entity state: %s",
+            price_sensor_entity.state if price_sensor_entity else "NOT_FOUND",
+        )
         if not price_sensor_entity:
-            _LOGGER.warning("Price sensor entity text input not found")
+            _LOGGER.warning("Price sensor entity text input not found: %s", price_sensor_entity_id)
             # Check if we can use Tibber action as fallback
             if self._should_use_tibber_action():
                 _LOGGER.info("No price sensor configured, attempting Tibber action-based fetching")
@@ -1250,8 +1319,10 @@ class CEWPriceSensorProxy(SensorEntity):
             return
 
         price_sensor_id = price_sensor_entity.state
+        _LOGGER.debug("Configured price sensor ID: '%s'", price_sensor_id)
+
         if not price_sensor_id or price_sensor_id == "":
-            _LOGGER.warning("Price sensor entity not configured")
+            _LOGGER.warning("Price sensor entity not configured (empty state)")
             # Check if we can use Tibber action as fallback
             if self._should_use_tibber_action():
                 _LOGGER.info("Price sensor not set, attempting Tibber action-based fetching")
@@ -1260,7 +1331,10 @@ class CEWPriceSensorProxy(SensorEntity):
 
         # Special case: Tibber action-based fetching (configured explicitly)
         if price_sensor_id == "tibber_action":
-            _LOGGER.debug("Tibber action mode configured, using action-based fetching")
+            _LOGGER.debug("Tibber action mode configured (explicit), using action-based fetching")
+            # Set tibber_action_mode flag BEFORE fetching so coordinator knows to expect Tibber data
+            self._attr_extra_state_attributes = {"tibber_action_mode": True}
+            self._attr_native_value = STATE_AVAILABLE
             self.hass.async_create_task(self._async_fetch_and_update_tibber_prices())
             return
 
@@ -1280,11 +1354,19 @@ class CEWPriceSensorProxy(SensorEntity):
                 self.async_write_ha_state()
             return
 
+        _LOGGER.debug(
+            "Using price sensor: %s, state=%s, has_attributes=%s",
+            price_sensor_id,
+            price_sensor.state,
+            len(price_sensor.attributes) > 0,
+        )
+
         # Mirror the state from the price sensor
         self._attr_native_value = price_sensor.state
 
         # Detect format and normalize if needed
         sensor_format = self._detect_sensor_format(price_sensor.attributes)
+        _LOGGER.debug("Detected sensor format: %s", sensor_format)
 
         if sensor_format == "entsoe":
             _LOGGER.debug(f"Detected ENTSO-E format from {price_sensor_id}, normalizing to Nord Pool format")
@@ -1376,6 +1458,10 @@ class CEWPriceSensorProxy(SensorEntity):
             )
 
             self.async_write_ha_state()
+
+            # Trigger coordinator refresh to pick up the new Tibber data
+            # This ensures the today/tomorrow sensors get updated with the new price data
+            await self.coordinator.async_request_refresh()
 
         except AttributeError as err:
             # Handle the runtime_data error that occurs during startup

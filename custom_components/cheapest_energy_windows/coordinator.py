@@ -101,8 +101,13 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             _LOGGER.info(f"Tomorrow valid: {tomorrow_valid}")
             _LOGGER.info(f"Tibber action mode: {tibber_action_mode}")
 
+            # In Tibber action mode, empty raw_today is expected while fetching is in progress
+            # Only log warning if we're NOT in Tibber action mode
             if not raw_today:
-                _LOGGER.warning("No price data available for today")
+                if tibber_action_mode:
+                    _LOGGER.debug("No price data available for today (Tibber action mode, data may still be fetching)")
+                else:
+                    _LOGGER.warning("No price data available for today")
                 _LOGGER.info(f"raw_today value: {raw_today}")
                 return await self._empty_data("No price data available")
 
