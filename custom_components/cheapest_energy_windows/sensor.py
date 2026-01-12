@@ -21,15 +21,15 @@ Detection Logic (_should_use_tibber_action):
 
 Fetching Logic (_fetch_tibber_prices_via_action):
     A single API call with proper date range parameters fetches all available prices:
-    - Single call: tibber.get_prices with start/end parameters (today 13:00 to tomorrow 12:59)
+    - Single call: tibber.get_prices with start/end parameters (midnight today to end of tomorrow)
     - Response is then split by date into today_prices and tomorrow_prices
     Tomorrow's prices may be empty before ~13:00 CET when Tibber publishes them.
 
 API Response Format:
-    The tibber.get_prices action returns data nested under a "null" string key:
+    The tibber.get_prices action returns data keyed by home nickname:
     {
         "prices": {
-            "null": [
+            "Your_Home_Nickname": [
                 {"start_time": "2026-01-11T00:00:00.000+01:00", "price": 0.2865},
                 {"start_time": "2026-01-11T00:15:00.000+01:00", "price": 0.274},
                 ...
@@ -827,14 +827,14 @@ class CEWPriceSensorProxy(SensorEntity):
             _LOGGER.debug("Calling tibber.get_prices with proper date range parameters")
 
             # Calculate proper date range for Tibber API call
-            # Use today 13:00 to tomorrow 12:59 to match user's working query
+            # Fetch from midnight today to end of tomorrow to get all available prices
             now = dt_util.now()
-            today_13 = now.replace(hour=13, minute=0, second=0, microsecond=0)
-            tomorrow_12_59 = (now + timedelta(days=1)).replace(hour=12, minute=59, second=0, microsecond=0)
+            today_midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            tomorrow_end = (now + timedelta(days=1)).replace(hour=23, minute=59, second=59, microsecond=0)
 
             # Format as ISO strings with timezone
-            start_time = today_13.isoformat()
-            end_time = tomorrow_12_59.isoformat()
+            start_time = today_midnight.isoformat()
+            end_time = tomorrow_end.isoformat()
 
             _LOGGER.debug(f"Calling tibber.get_prices: start={start_time}, end={end_time}")
 
@@ -858,7 +858,7 @@ class CEWPriceSensorProxy(SensorEntity):
                 return []
 
             # Extract prices from the nested structure
-            # Tibber returns: {"prices": {"null": [{"start_time": "...", "price": 0.123}, ...]}}
+            # Tibber returns: {"prices": {"Home_Nickname": [{"start_time": "...", "price": 0.123}, ...]}}
             prices_container = response.get("prices", {})
             _LOGGER.debug("Tibber prices_container keys: %s", list(prices_container.keys()) if prices_container else "None")
 
@@ -866,19 +866,42 @@ class CEWPriceSensorProxy(SensorEntity):
                 _LOGGER.warning("Tibber response missing 'prices' key. Full response: %s", response)
                 return []
 
-            # The prices are nested under a "null" string key
-            price_list = prices_container.get("null", [])
-            _LOGGER.debug("Tibber prices['null'] count: %d", len(price_list))
+            # Tibber returns prices keyed by home nickname (e.g., "My_Home")
+            # Get the first available home's prices (most users have one home)
+            price_list = []
+            home_keys = list(prices_container.keys())
+            _LOGGER.debug("Tibber prices container keys: %s", home_keys)
+
+            if home_keys:
+                # Use the first home's prices
+                first_home_key = home_keys[0]
+                price_list = prices_container.get(first_home_key, [])
+                _LOGGER.debug(
+                    "Using prices from home '%s': %d entries",
+                    first_home_key,
+                    len(price_list),
+                )
+
+                # If multiple homes, merge all prices (sorted by start_time)
+                if len(home_keys) > 1:
+                    _LOGGER.info(
+                        "Multiple Tibber homes found: %s. Using first home only.",
+                        home_keys,
+                    )
 
             if not price_list:
-                _LOGGER.debug(
-                    "Tibber prices['null'] is empty. Available keys: %s",
-                    list(prices_container.keys()),
+                _LOGGER.warning(
+                    "Tibber prices container has no price entries. Keys: %s",
+                    home_keys,
                 )
-                _LOGGER.debug("Tibber prices['null'] value: %s", prices_container.get("null"))
                 # Log all prices_container values for debugging
                 for key, value in prices_container.items():
-                    _LOGGER.debug("Tibber prices[%s] type: %s, count: %s", repr(key), type(value).__name__, len(value) if isinstance(value, (list, dict)) else "N/A")
+                    _LOGGER.debug(
+                        "Tibber prices[%s] type: %s, count: %s",
+                        repr(key),
+                        type(value).__name__,
+                        len(value) if isinstance(value, (list, dict)) else "N/A",
+                    )
                 return []
 
             _LOGGER.debug(
@@ -1153,6 +1176,7 @@ class CEWPriceSensorProxy(SensorEntity):
             True if we should use tibber.get_prices action to fetch prices,
             False if we should rely on sensor-based data.
         """
+
         # Check 1: Is the Tibber service available?
         tibber_service_available = self.hass.services.has_service(TIBBER_SERVICE_DOMAIN, TIBBER_SERVICE_GET_PRICES)
         _LOGGER.debug(
