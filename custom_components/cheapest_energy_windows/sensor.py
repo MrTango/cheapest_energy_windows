@@ -1351,7 +1351,7 @@ class CEWPriceSensorProxy(SensorEntity):
         try:
             _LOGGER.debug("Starting Tibber action-based price fetching")
 
-            # Fetch prices using the Tibber action (two API calls for day boundary)
+            # Fetch prices using single Tibber API call (split by date internally)
             today_prices, tomorrow_prices = await self._fetch_tibber_prices_via_action()
 
             if not today_prices:
@@ -1465,8 +1465,16 @@ class CEWPriceSensorProxy(SensorEntity):
             self.coordinator.async_add_listener(self._handle_coordinator_update)
         )
 
-        # Do initial update
-        self._handle_coordinator_update()
+        # Do initial update - if Tibber action is needed, await it directly
+        # to ensure data is available before coordinator's first poll
+        if self._should_use_tibber_action():
+            _LOGGER.info("Initial setup: Tibber action available, fetching prices synchronously")
+            await self._async_fetch_and_update_tibber_prices()
+            # Trigger coordinator refresh to pick up the new Tibber data
+            _LOGGER.info("Initial Tibber fetch complete, triggering coordinator refresh")
+            await self.coordinator.async_request_refresh()
+        else:
+            self._handle_coordinator_update()
 
 
 class CEWLastCalculationSensor(CoordinatorEntity, SensorEntity):
