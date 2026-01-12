@@ -1217,6 +1217,12 @@ class CEWPriceSensorProxy(SensorEntity):
                 self.hass.async_create_task(self._async_fetch_and_update_tibber_prices())
             return
 
+        # Special case: Tibber action-based fetching (configured explicitly)
+        if price_sensor_id == "tibber_action":
+            _LOGGER.debug("Tibber action mode configured, using action-based fetching")
+            self.hass.async_create_task(self._async_fetch_and_update_tibber_prices())
+            return
+
         # Get the actual price sensor state
         price_sensor = self.hass.states.get(price_sensor_id)
         if not price_sensor:

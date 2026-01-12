@@ -68,6 +68,13 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
 
     # Check if price sensor exists
     price_sensor = data.get(CONF_PRICE_SENSOR)
+
+    # Special case: Tibber action-based (not a real sensor entity)
+    if price_sensor == "tibber_action":
+        if not hass.services.has_service("tibber", "get_prices"):
+            raise ValueError("Tibber get_prices action not available. Please ensure the Tibber integration is configured.")
+        return {"title": "Cheapest Energy Windows"}
+
     if price_sensor:
         sensor_state = hass.states.get(price_sensor)
         if not sensor_state:
@@ -171,7 +178,14 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         tibber_sensors.append(state.entity_id)
                         price_sensors.append(state.entity_id)
 
-        # Show error if no sensors found
+        # Check if Tibber action is available (for action-based price fetching)
+        # This is used when Tibber doesn't expose price data via sensor attributes
+        tibber_action_available = self.hass.services.has_service("tibber", "get_prices")
+        if tibber_action_available:
+            # Add Tibber action option (works even without a sensor)
+            price_sensors.append("tibber_action")
+
+        # Show error if no sensors found and no Tibber action available
         if not price_sensors:
             return self.async_show_form(
                 step_id="price_sensor",
@@ -182,35 +196,57 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 },
             )
 
-        # Build sensor list with format indicators
-        sensor_list = []
-        for sensor in price_sensors[:5]:
-            if sensor in entsoe_sensors:
+        # Build options list for selector with format indicators
+        sensor_options = []
+        sensor_list = []  # For display in description
+        for sensor in price_sensors:
+            if sensor == "tibber_action":
+                sensor_options.append({
+                    "label": "Tibber (via action)",
+                    "value": "tibber_action"
+                })
+                sensor_list.append("- Tibber (via action)")
+            elif sensor in entsoe_sensors:
+                sensor_options.append({
+                    "label": f"{sensor} (ENTSO-E)",
+                    "value": sensor
+                })
                 sensor_list.append(f"- {sensor} (ENTSO-E)")
             elif sensor in tibber_sensors:
+                sensor_options.append({
+                    "label": f"{sensor} (Tibber)",
+                    "value": sensor
+                })
                 sensor_list.append(f"- {sensor} (Tibber)")
             else:
+                sensor_options.append({
+                    "label": f"{sensor} (Nord Pool)",
+                    "value": sensor
+                })
                 sensor_list.append(f"- {sensor} (Nord Pool)")
+
+        # Limit display list for description
+        sensor_list_display = sensor_list[:5]
 
         # Add sensor format notes
         sensor_note = ""
-        if nordpool_sensors or entsoe_sensors or tibber_sensors:
-            sensor_note = "\n\n📝 **Sensor Requirements:**\n• **15-minute interval sensor required** - The integration needs 15-minute price data for optimal window calculation\n• If you have hourly pricing contracts, the system will automatically aggregate 15-minute data into hourly windows\n• Nord Pool, ENTSO-E, and Tibber 15-minute sensors are supported"
+        if nordpool_sensors or entsoe_sensors or tibber_sensors or tibber_action_available:
+            sensor_note = "\n\n📝 **Sensor Requirements:**\n• **15-minute interval sensor required** - The integration needs 15-minute price data for optimal window calculation\n• If you have hourly pricing contracts, the system will automatically aggregate 15-minute data into hourly windows\n• Nord Pool, ENTSO-E, and Tibber 15-minute sensors are supported\n• **Tibber (via action)**: Use if Tibber doesn't expose a price sensor - fetches prices directly from Tibber API"
 
-        # Show available sensors for selection (no default)
+        # Show available sensors for selection (using SelectSelector to allow non-entity options)
         return self.async_show_form(
             step_id="price_sensor",
             data_schema=vol.Schema({
-                vol.Required(CONF_PRICE_SENSOR): selector.EntitySelector(
-                    selector.EntitySelectorConfig(
-                        domain="sensor",
-                        multiple=False,
+                vol.Required(CONF_PRICE_SENSOR): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=sensor_options,
+                        mode=selector.SelectSelectorMode.DROPDOWN,
                     )
                 ),
             }),
             errors=errors,
             description_placeholders={
-                "info": f"✅ Detected {len(price_sensors)} compatible price sensor(s)\n\n⚠️ **IMPORTANT - Price Unit Requirement:**\nYour price sensor MUST use EUR/kWh (e.g., 0.25), NOT cents (e.g., 25).\nSensors configured for cents/kWh are currently not supported and will cause incorrect calculations.\n\nPlease select your price sensor:\n{chr(10).join(sensor_list)}\n\nSupported sensor formats:\n• Nord Pool: 'raw_today'/'raw_tomorrow' attributes\n• ENTSO-E: 'prices_today'/'prices_tomorrow' attributes\n• Tibber: 'today'/'tomorrow' attributes with 'startsAt' entries{sensor_note}"
+                "info": f"✅ Detected {len(price_sensors)} compatible price source(s)\n\n⚠️ **IMPORTANT - Price Unit Requirement:**\nYour price sensor MUST use EUR/kWh (e.g., 0.25), NOT cents (e.g., 25).\nSensors configured for cents/kWh are currently not supported and will cause incorrect calculations.\n\nPlease select your price source:\n{chr(10).join(sensor_list_display)}\n\nSupported formats:\n• Nord Pool: 'raw_today'/'raw_tomorrow' attributes\n• ENTSO-E: 'prices_today'/'prices_tomorrow' attributes\n• Tibber: 'today'/'tomorrow' attributes or via action{sensor_note}"
             },
         )
 
