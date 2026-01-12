@@ -839,7 +839,7 @@ class CEWPriceSensorProxy(SensorEntity):
             _LOGGER.debug(f"Calling tibber.get_prices: start={start_time}, end={end_time}")
 
             # Call the Tibber service action with proper parameters
-            # Use blocking=False to avoid potential issues in async context
+            # blocking=True is required when return_response=True
             response = await self.hass.services.async_call(
                 TIBBER_SERVICE_DOMAIN,
                 TIBBER_SERVICE_GET_PRICES,
@@ -847,7 +847,7 @@ class CEWPriceSensorProxy(SensorEntity):
                     "start": start_time,
                     "end": end_time,
                 },
-                blocking=False,
+                blocking=True,
                 return_response=True,
             )
             _LOGGER.debug("Tibber get_prices response type: %s", type(response))
