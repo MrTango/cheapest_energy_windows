@@ -20,8 +20,8 @@ Detection Logic (_should_use_tibber_action):
     3. If sensor data is missing/empty and Tibber action is available, use action
 
 Fetching Logic (_fetch_tibber_prices_via_action):
-    A single API call without parameters fetches all available prices:
-    - Single call: tibber.get_prices with no start/end parameters
+    A single API call with proper date range parameters fetches all available prices:
+    - Single call: tibber.get_prices with start/end parameters (today 13:00 to tomorrow 12:59)
     - Response is then split by date into today_prices and tomorrow_prices
     Tomorrow's prices may be empty before ~13:00 CET when Tibber publishes them.
 
@@ -60,8 +60,8 @@ Manual Testing:
     3. Test Tibber Action Directly:
        Service: tibber.get_prices
        Data:
-         start: "2026-01-11T00:00:00+01:00"
-         end: "2026-01-11T23:59:59+01:00"
+         start: "2026-01-11T13:00:00+01:00"  # Today 13:00
+         end: "2026-01-12T12:59:59+01:00"    # Tomorrow 12:59
 
     4. Verify CEW Detection:
        - Check Home Assistant logs for:
@@ -824,17 +824,31 @@ class CEWPriceSensorProxy(SensorEntity):
             or empty list on failure.
         """
         try:
-            _LOGGER.debug("Calling tibber.get_prices (no parameters)")
+            _LOGGER.debug("Calling tibber.get_prices with proper date range parameters")
 
-            # Call the Tibber service action without parameters - returns all available prices
+            # Calculate proper date range for Tibber API call
+            # Use today 13:00 to tomorrow 12:59 to match user's working query
+            now = dt_util.now()
+            today_13 = now.replace(hour=13, minute=0, second=0, microsecond=0)
+            tomorrow_12_59 = (now + timedelta(days=1)).replace(hour=12, minute=59, second=0, microsecond=0)
+
+            # Format as ISO strings with timezone
+            start_time = today_13.isoformat()
+            end_time = tomorrow_12_59.isoformat()
+
+            _LOGGER.debug(f"Calling tibber.get_prices: start={start_time}, end={end_time}")
+
+            # Call the Tibber service action with proper parameters
             response = await self.hass.services.async_call(
                 TIBBER_SERVICE_DOMAIN,
                 TIBBER_SERVICE_GET_PRICES,
-                {},
+                {
+                    "start": start_time,
+                    "end": end_time,
+                },
                 blocking=True,
                 return_response=True,
             )
-
             _LOGGER.debug("Tibber get_prices response type: %s", type(response))
 
             if not response:
@@ -896,9 +910,9 @@ class CEWPriceSensorProxy(SensorEntity):
     ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         """Fetch Tibber prices using a single API call and split by date.
 
-        Calls tibber.get_prices without parameters to get all available prices,
-        then splits the returned prices into today and tomorrow lists based on
-        the date in each price entry's start_time.
+        Calls tibber.get_prices with proper date range parameters (today 13:00 to tomorrow 12:59)
+        to get all available prices, then splits the returned prices into today and tomorrow
+        lists based on the date in each price entry's start_time.
 
         Returns:
             Tuple of (today_prices, tomorrow_prices) where each is a list of
@@ -913,9 +927,9 @@ class CEWPriceSensorProxy(SensorEntity):
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         tomorrow = today_start + timedelta(days=1)
 
-        _LOGGER.debug("Fetching Tibber prices (single call, no parameters)")
+        _LOGGER.debug("Fetching Tibber prices (with proper date range parameters)")
 
-        # Single API call for all available prices (no start/end parameters)
+        # API call with proper date range parameters
         # Note: AttributeError with runtime_data will propagate to caller for retry handling
         all_prices = await self._call_tibber_get_prices()
         _LOGGER.debug(
