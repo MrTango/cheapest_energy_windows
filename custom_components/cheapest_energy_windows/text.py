@@ -35,7 +35,7 @@ async def async_setup_entry(
             "Price Sensor Entity",
             config_entry.data.get("price_sensor", ""),
             "mdi:identifier",
-            r"^sensor\.[a-z0-9_]+$"
+            r"^sensor\.[a-z0-9_]+$|^tibber_action$"
         ),
         # Battery configuration entities (optional)
         CEWText(
