@@ -93,8 +93,16 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             tomorrow_valid = price_state.attributes.get("tomorrow_valid", False)
 
             # Check if proxy sensor is using Tibber action-based fetching
-            # This flag is set by CEWPriceSensorProxy when tibber.get_prices action is used
+            # First check if tibber_action_mode is set in proxy sensor attributes
             tibber_action_mode = price_state.attributes.get("tibber_action_mode", False)
+
+            # Also check the price sensor entity configuration directly
+            # This is more reliable than relying on proxy sensor attributes
+            price_sensor_entity_id = f"text.{PREFIX}price_sensor_entity"
+            price_sensor_entity = self.hass.states.get(price_sensor_entity_id)
+            if price_sensor_entity and price_sensor_entity.state == "tibber_action":
+                tibber_action_mode = True
+                _LOGGER.debug("Tibber action mode detected from price sensor entity configuration")
 
             _LOGGER.info(f"Raw today count: {len(raw_today)}")
             _LOGGER.info(f"Raw tomorrow count: {len(raw_tomorrow)}")
