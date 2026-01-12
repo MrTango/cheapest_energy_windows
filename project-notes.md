@@ -226,3 +226,7 @@ AttributeError: 'ConfigEntry' object has no attribute 'runtime_data'
 - `sensor.py:CEWPriceSensorProxy._schedule_tibber_retry()` - Retry scheduling
 - `sensor.py:CEWPriceSensorProxy._call_tibber_get_prices()` - Error detection
 - `sensor.py:CEWPriceSensorProxy._async_fetch_and_update_tibber_prices()` - Retry handling
+
+## Rules
+
+- always update the README.md and project-notes.md!

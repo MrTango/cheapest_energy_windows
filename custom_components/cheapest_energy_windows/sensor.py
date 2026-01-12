@@ -20,9 +20,9 @@ Detection Logic (_should_use_tibber_action):
     3. If sensor data is missing/empty and Tibber action is available, use action
 
 Fetching Logic (_fetch_tibber_prices_via_action):
-    Due to Tibber's day boundary handling, two separate API calls are required:
-    - Call 1: Today's prices (00:00 today → midnight)
-    - Call 2: Tomorrow's prices (midnight → 23:00 tomorrow)
+    A single API call fetches all available prices from today through tomorrow:
+    - Single call: from 00:00 today to 23:00 tomorrow
+    - Response is then split by date into today_prices and tomorrow_prices
     Tomorrow's prices may be empty before ~13:00 CET when Tibber publishes them.
 
 API Response Format:
@@ -806,7 +806,7 @@ class CEWPriceSensorProxy(SensorEntity):
     #
     # Key methods:
     #   - _call_tibber_get_prices(): Low-level API call wrapper
-    #   - _fetch_tibber_prices_via_action(): Orchestrates two API calls for day boundary
+    #   - _fetch_tibber_prices_via_action(): Single API call, splits response by date
     #   - _normalize_tibber_action_response(): Converts API response to Nord Pool format
     #   - _should_use_tibber_action(): Detection logic for when to use action fallback
     #   - _async_fetch_and_update_tibber_prices(): Async update entry point
@@ -911,12 +911,11 @@ class CEWPriceSensorProxy(SensorEntity):
     async def _fetch_tibber_prices_via_action(
         self,
     ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-        """Fetch Tibber prices using two API calls for day boundary handling.
+        """Fetch Tibber prices using a single API call and split by date.
 
-        Tibber requires separate API calls for today and tomorrow data due to
-        its day boundary handling. This method:
-        1. Calls API for today: from start of today (00:00) to midnight
-        2. Calls API for tomorrow: from midnight to end of tomorrow (23:00)
+        Makes one API call from start of today (00:00) to end of tomorrow (23:00),
+        then splits the returned prices into today and tomorrow lists based on
+        the date in each price entry's start_time.
 
         Returns:
             Tuple of (today_prices, tomorrow_prices) where each is a list of
@@ -929,42 +928,64 @@ class CEWPriceSensorProxy(SensorEntity):
         """
         now = dt_util.now()
 
-        # Calculate time range boundaries
-        # Today: 00:00 today to 00:00 tomorrow (midnight)
+        # Calculate time range boundaries for single API call
+        # From 00:00 today to 23:00 tomorrow
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        midnight = today_start + timedelta(days=1)
-
-        # Tomorrow: 00:00 tomorrow to 23:00 tomorrow
-        tomorrow_end = midnight.replace(hour=TIBBER_TOMORROW_END_HOUR, minute=0)
+        tomorrow = today_start + timedelta(days=1)
+        tomorrow_end = tomorrow.replace(hour=TIBBER_TOMORROW_END_HOUR, minute=0)
 
         _LOGGER.debug(
-            "Fetching Tibber prices - today: %s to %s, tomorrow: %s to %s",
+            "Fetching Tibber prices (single call): %s to %s",
             today_start.isoformat(),
-            midnight.isoformat(),
-            midnight.isoformat(),
             tomorrow_end.isoformat(),
         )
 
-        # Call 1: Today's prices (00:00 today -> midnight)
+        # Single API call for all prices
         # Note: AttributeError with runtime_data will propagate to caller for retry handling
-        today_prices = await self._call_tibber_get_prices(today_start, midnight)
+        all_prices = await self._call_tibber_get_prices(today_start, tomorrow_end)
         _LOGGER.debug(
-            "Tibber today prices: %d entries",
-            len(today_prices),
+            "Tibber API returned %d total price entries",
+            len(all_prices),
         )
 
-        # Call 2: Tomorrow's prices (midnight -> end of tomorrow)
-        # This may return empty if tomorrow's prices are not yet available
-        # (Tibber typically publishes tomorrow's prices after ~13:00 CET)
-        tomorrow_prices = await self._call_tibber_get_prices(midnight, tomorrow_end)
+        if not all_prices:
+            _LOGGER.warning(
+                "No prices received from Tibber API action"
+            )
+            return [], []
+
+        # Split prices into today and tomorrow based on start_time date
+        today_date = today_start.date()
+        tomorrow_date = tomorrow.date()
+
+        today_prices = []
+        tomorrow_prices = []
+
+        for price in all_prices:
+            start_time_str = price.get("start_time", "")
+            if not start_time_str:
+                continue
+
+            parsed = dt_util.parse_datetime(start_time_str)
+            if not parsed:
+                continue
+
+            price_date = dt_util.as_local(parsed).date()
+
+            if price_date == today_date:
+                today_prices.append(price)
+            elif price_date == tomorrow_date:
+                tomorrow_prices.append(price)
+
         _LOGGER.debug(
-            "Tibber tomorrow prices: %d entries",
+            "Split Tibber prices: %d today entries, %d tomorrow entries",
+            len(today_prices),
             len(tomorrow_prices),
         )
 
         if not today_prices:
             _LOGGER.warning(
-                "No today prices received from Tibber API action"
+                "No today prices in Tibber API response (may be after midnight)"
             )
 
         if not tomorrow_prices:
