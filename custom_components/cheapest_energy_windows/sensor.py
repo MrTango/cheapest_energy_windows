@@ -95,6 +95,7 @@ Troubleshooting:
 """
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta
 import logging
 from typing import Any, Dict, List, Optional, Tuple
@@ -602,6 +603,10 @@ class CEWPriceSensorProxy(SensorEntity):
     regardless of which price sensor the user has configured.
     """
 
+    # Retry settings for Tibber action calls during startup
+    TIBBER_MAX_RETRIES = 5
+    TIBBER_RETRY_DELAY_SECONDS = 10
+
     def __init__(
         self,
         hass: HomeAssistant,
@@ -618,6 +623,10 @@ class CEWPriceSensorProxy(SensorEntity):
         self._attr_has_entity_name = False
         self._attr_native_value = None
         self._attr_extra_state_attributes = {}
+
+        # Track Tibber retry state for startup race condition handling
+        self._tibber_retry_count = 0
+        self._tibber_retry_scheduled = False
 
         _LOGGER.debug("Price sensor proxy initialized")
 
@@ -874,6 +883,23 @@ class CEWPriceSensorProxy(SensorEntity):
 
             return price_list
 
+        except AttributeError as err:
+            # Check for the specific runtime_data error that occurs during startup
+            # when Tibber integration hasn't fully initialized yet
+            if "runtime_data" in str(err):
+                _LOGGER.warning(
+                    "Tibber integration not fully initialized yet (runtime_data not available). "
+                    "This is normal during Home Assistant startup. Will retry."
+                )
+                # Re-raise to signal caller that a retry may help
+                raise
+            _LOGGER.error(
+                "Failed to call tibber.get_prices (AttributeError): %s",
+                err,
+                exc_info=True,
+            )
+            return []
+
         except Exception as err:
             _LOGGER.error(
                 "Failed to call tibber.get_prices: %s",
@@ -896,6 +922,10 @@ class CEWPriceSensorProxy(SensorEntity):
             Tuple of (today_prices, tomorrow_prices) where each is a list of
             price dictionaries with 'start_time' and 'price' fields.
             Returns empty lists on failure or if data is not yet available.
+
+        Raises:
+            AttributeError: If Tibber integration is not fully initialized
+                (runtime_data not available). This allows caller to handle retries.
         """
         now = dt_util.now()
 
@@ -916,6 +946,7 @@ class CEWPriceSensorProxy(SensorEntity):
         )
 
         # Call 1: Today's prices (00:00 today -> midnight)
+        # Note: AttributeError with runtime_data will propagate to caller for retry handling
         today_prices = await self._call_tibber_get_prices(today_start, midnight)
         _LOGGER.debug(
             "Tibber today prices: %d entries",
@@ -1292,6 +1323,9 @@ class CEWPriceSensorProxy(SensorEntity):
         the tibber.get_prices action is available. It fetches prices using the
         Tibber API action, normalizes them to Nord Pool format, and updates
         the sensor attributes.
+
+        Handles startup race condition where Tibber integration may not be fully
+        initialized yet by implementing retry logic with exponential backoff.
         """
         try:
             _LOGGER.debug("Starting Tibber action-based price fetching")
@@ -1307,6 +1341,10 @@ class CEWPriceSensorProxy(SensorEntity):
                 self._attr_extra_state_attributes = {}
                 self.async_write_ha_state()
                 return
+
+            # Success - reset retry counter
+            self._tibber_retry_count = 0
+            self._tibber_retry_scheduled = False
 
             # Normalize to Nord Pool canonical format
             normalized = self._normalize_tibber_action_response(today_prices, tomorrow_prices)
@@ -1329,6 +1367,20 @@ class CEWPriceSensorProxy(SensorEntity):
 
             self.async_write_ha_state()
 
+        except AttributeError as err:
+            # Handle the runtime_data error that occurs during startup
+            if "runtime_data" in str(err):
+                await self._schedule_tibber_retry()
+            else:
+                _LOGGER.error(
+                    "Failed to fetch Tibber prices (AttributeError): %s",
+                    err,
+                    exc_info=True,
+                )
+                self._attr_native_value = STATE_UNAVAILABLE
+                self._attr_extra_state_attributes = {}
+                self.async_write_ha_state()
+
         except Exception as err:
             _LOGGER.error(
                 "Failed to fetch and update Tibber prices via action: %s",
@@ -1338,6 +1390,52 @@ class CEWPriceSensorProxy(SensorEntity):
             self._attr_native_value = STATE_UNAVAILABLE
             self._attr_extra_state_attributes = {}
             self.async_write_ha_state()
+
+    async def _schedule_tibber_retry(self) -> None:
+        """Schedule a retry for Tibber action fetch after a delay.
+
+        This handles the startup race condition where Tibber integration
+        hasn't fully initialized yet (runtime_data not available).
+        """
+        if self._tibber_retry_scheduled:
+            _LOGGER.debug("Tibber retry already scheduled, skipping")
+            return
+
+        self._tibber_retry_count += 1
+
+        if self._tibber_retry_count > self.TIBBER_MAX_RETRIES:
+            _LOGGER.error(
+                "Tibber action failed after %d retries. "
+                "Please check that the Tibber integration is properly configured.",
+                self.TIBBER_MAX_RETRIES,
+            )
+            self._attr_native_value = STATE_UNAVAILABLE
+            self._attr_extra_state_attributes = {}
+            self.async_write_ha_state()
+            return
+
+        delay = self.TIBBER_RETRY_DELAY_SECONDS * self._tibber_retry_count
+        _LOGGER.info(
+            "Scheduling Tibber retry %d/%d in %d seconds",
+            self._tibber_retry_count,
+            self.TIBBER_MAX_RETRIES,
+            delay,
+        )
+
+        self._tibber_retry_scheduled = True
+
+        async def _retry_tibber():
+            """Delayed retry of Tibber fetch."""
+            await asyncio.sleep(delay)
+            self._tibber_retry_scheduled = False
+            _LOGGER.info(
+                "Executing Tibber retry %d/%d",
+                self._tibber_retry_count,
+                self.TIBBER_MAX_RETRIES,
+            )
+            await self._async_fetch_and_update_tibber_prices()
+
+        self.hass.async_create_task(_retry_tibber())
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""

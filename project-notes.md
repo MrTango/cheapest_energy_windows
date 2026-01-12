@@ -1,8 +1,51 @@
 # Cheapest Energy Windows - Project Notes
 
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 ## Overview
 
-A Home Assistant custom component for battery energy management. It identifies optimal charging windows (cheap electricity) and discharging windows (expensive electricity) based on dynamic pricing from multiple sources.
+A Home Assistant custom component (`cheapest_energy_windows_tibber`) for battery energy management. It identifies optimal charging windows (cheap electricity) and discharging windows (expensive electricity) based on dynamic pricing from multiple sources.
+
+## Development Commands
+
+```bash
+# Copy to Home Assistant custom_components for testing
+cp -r custom_components/cheapest_energy_windows /path/to/homeassistant/config/custom_components/
+
+# View Home Assistant logs for this integration
+grep -i "cheapest_energy_windows" /path/to/homeassistant/config/home-assistant.log
+
+# Validate manifest.json
+python -c "import json; json.load(open('custom_components/cheapest_energy_windows/manifest.json'))"
+```
+
+## Requirements
+
+- Home Assistant 2024.1.0+
+- NumPy >= 1.24.0
+- Price sensor providing EUR/kWh (not cents)
+- 15-minute granularity price data (even for hourly contracts)
+
+## Data Flow
+
+```
+Price Sensor (Nord Pool/ENTSO-E/Tibber)
+    |
+    v
+CEWPriceSensorProxy (sensor.py)
+    | (normalizes to canonical format)
+    v
+CEWCoordinator (coordinator.py)
+    | (polls every 10 seconds, tracks changes)
+    v
+CEWTodaySensor / CEWTomorrowSensor (sensor.py)
+    | (calls calculation engine)
+    v
+WindowCalculationEngine (calculation_engine.py)
+    | (NumPy-based window calculations)
+    v
+Battery Mode State (charge/discharge/idle/off)
+```
 
 ## Supported Price Sensors
 
@@ -36,9 +79,26 @@ A Home Assistant custom component for battery energy management. It identifies o
         price: 0.2865
   ```
 - **Requires two API calls** for day boundary:
-  1. Today: 00:00 → midnight
-  2. Tomorrow: midnight → 23:00
+  1. Today: 00:00 -> midnight
+  2. Tomorrow: midnight -> 23:00
 - **Normalization method**: `_normalize_tibber_action_response()`
+
+## Canonical Price Data Format
+
+All price sensors are normalized to this format before processing:
+```json
+{
+  "raw_today": [
+    {
+      "start": "2026-01-11T00:00:00+01:00",
+      "end": "2026-01-11T00:15:00+01:00",
+      "value": 0.2865
+    }
+  ],
+  "raw_tomorrow": [...],
+  "tomorrow_valid": true
+}
+```
 
 ## Key Architecture Components
 
@@ -75,6 +135,10 @@ Central proxy sensor that:
 - Validates sensor format before accepting (special case for "tibber_action")
 - Supports Nord Pool, ENTSO-E, Tibber sensors, and Tibber action
 
+### automation_handler.py
+- Creates and maintains battery control automations
+- Responds to state changes from sensors
+
 ## Constants (const.py)
 
 Key Tibber constants:
@@ -93,47 +157,30 @@ STATE_IDLE = "idle"
 STATE_OFF = "off"
 ```
 
-## Data Flow
+## File Structure
 
-```
-Price Sensor (Nord Pool/ENTSO-E/Tibber)
-    │
-    ▼
-CEWPriceSensorProxy
-    │ (normalizes to canonical format)
-    ▼
-CEWCoordinator
-    │ (tracks changes, provides config)
-    ▼
-CEWTodaySensor / CEWTomorrowSensor
-    │ (calls calculation engine)
-    ▼
-WindowCalculationEngine
-    │ (NumPy-based window calculations)
-    ▼
-Battery Mode State (charge/discharge/idle/off)
-```
+| File | Purpose |
+|------|---------|
+| `__init__.py` | Integration setup, platform loading, service registration |
+| `const.py` | All constants, defaults, configuration keys |
+| `sensor.py` | Price proxy and Today/Tomorrow sensors |
+| `coordinator.py` | Data coordination and polling |
+| `calculation_engine.py` | Window calculation logic (NumPy) |
+| `config_flow.py` | Setup wizard, sensor detection |
+| `automation_handler.py` | Battery automation management |
+| `number.py` | Number input entities |
+| `select.py` | Select input entities |
+| `services.py` | HA services |
+| `switch.py` | Switch entities |
+| `text.py` | Text input entities |
+| `time.py` | Time input entities |
+| `manifest.json` | Integration manifest |
+| `strings.json` | UI strings |
+| `translations/` | Localization files |
 
-## Canonical Price Data Format
+## Testing
 
-All price sensors are normalized to this format before processing:
-```json
-{
-  "raw_today": [
-    {
-      "start": "2026-01-11T00:00:00+01:00",
-      "end": "2026-01-11T00:15:00+01:00",
-      "value": 0.2865
-    }
-  ],
-  "raw_tomorrow": [...],
-  "tomorrow_valid": true
-}
-```
-
-## Testing Tibber Integration
-
-### Manual Testing in Home Assistant
+No automated test infrastructure exists. Manual testing:
 
 1. **Verify Tibber service availability**:
    - Developer Tools > Services
@@ -156,15 +203,6 @@ All price sensors are normalized to this format before processing:
    - `sensor.cew_price_sensor_proxy`
    - Check `raw_today`, `raw_tomorrow`, `tomorrow_valid`, `tibber_action_mode`
 
-## Recent Changes (Task 003)
-
-Implemented Tibber action-based price fetching as fallback:
-- Calls `tibber.get_prices` Home Assistant action when sensor data unavailable
-- Handles midnight boundary with two API calls
-- Extracts data from nested `prices["null"]` structure
-- Normalizes API response to canonical format
-- Integrated with coordinator via `tibber_action_mode` flag
-
 ## Known Limitations
 
 1. **Tibber tomorrow prices**: Available after ~13:00 CET
@@ -172,24 +210,19 @@ Implemented Tibber action-based price fetching as fallback:
 3. **Price unit requirement**: Only EUR/kWh supported (not cents)
 4. **15-minute data required**: Even for hourly contracts, 15-min price data needed
 
-## File Structure
+## Startup Race Condition Handling
 
+The Tibber integration may not be fully initialized when CEW starts during Home Assistant boot. This manifests as:
 ```
-custom_components/cheapest_energy_windows/
-├── __init__.py         # Integration setup, entry point
-├── calculation_engine.py  # Window calculation logic (NumPy)
-├── config_flow.py      # Setup wizard, sensor detection
-├── const.py            # Constants, defaults
-├── coordinator.py      # Data coordinator
-├── sensor.py           # Sensors including price proxy
-├── automation_handler.py  # Battery control automation
-├── number.py           # Number input entities
-├── select.py           # Select input entities
-├── services.py         # HA services
-├── switch.py           # Switch entities
-├── text.py             # Text input entities
-├── time.py             # Time input entities
-├── manifest.json       # Integration manifest
-├── strings.json        # UI strings
-└── translations/       # Localization files
+AttributeError: 'ConfigEntry' object has no attribute 'runtime_data'
 ```
+
+**Solution**: CEW implements retry logic with exponential backoff:
+- Max 5 retries with increasing delay (10s, 20s, 30s, 40s, 50s)
+- Automatic retry when `runtime_data` error is detected
+- Clear logging of retry attempts for troubleshooting
+
+**Code locations**:
+- `sensor.py:CEWPriceSensorProxy._schedule_tibber_retry()` - Retry scheduling
+- `sensor.py:CEWPriceSensorProxy._call_tibber_get_prices()` - Error detection
+- `sensor.py:CEWPriceSensorProxy._async_fetch_and_update_tibber_prices()` - Retry handling
