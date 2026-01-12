@@ -20,8 +20,8 @@ Detection Logic (_should_use_tibber_action):
     3. If sensor data is missing/empty and Tibber action is available, use action
 
 Fetching Logic (_fetch_tibber_prices_via_action):
-    A single API call fetches all available prices from today through tomorrow:
-    - Single call: from 00:00 today to 23:00 tomorrow
+    A single API call without parameters fetches all available prices:
+    - Single call: tibber.get_prices with no start/end parameters
     - Response is then split by date into today_prices and tomorrow_prices
     Tomorrow's prices may be empty before ~13:00 CET when Tibber publishes them.
 
@@ -812,42 +812,25 @@ class CEWPriceSensorProxy(SensorEntity):
     #   - _async_fetch_and_update_tibber_prices(): Async update entry point
     # =========================================================================
 
-    async def _call_tibber_get_prices(
-        self, start: datetime, end: datetime
-    ) -> List[Dict[str, Any]]:
-        """Call the Tibber get_prices action with time range parameters.
+    async def _call_tibber_get_prices(self) -> List[Dict[str, Any]]:
+        """Call the Tibber get_prices action to fetch all available prices.
 
         This method calls the Home Assistant tibber.get_prices action to fetch
         price data from the Tibber API. The response contains prices nested under
         a "null" key which this method extracts.
-
-        Args:
-            start: Start datetime for the price range (timezone-aware)
-            end: End datetime for the price range (timezone-aware)
 
         Returns:
             List of price dictionaries with 'start_time' and 'price' fields,
             or empty list on failure.
         """
         try:
-            # Format timestamps as ISO 8601 strings
-            start_str = start.isoformat()
-            end_str = end.isoformat()
+            _LOGGER.debug("Calling tibber.get_prices (no parameters)")
 
-            _LOGGER.debug(
-                "Calling tibber.get_prices: start=%s, end=%s",
-                start_str,
-                end_str,
-            )
-
-            # Call the Tibber service action
+            # Call the Tibber service action without parameters - returns all available prices
             response = await self.hass.services.async_call(
                 TIBBER_SERVICE_DOMAIN,
                 TIBBER_SERVICE_GET_PRICES,
-                {
-                    "start": start_str,
-                    "end": end_str,
-                },
+                {},
                 blocking=True,
                 return_response=True,
             )
@@ -913,7 +896,7 @@ class CEWPriceSensorProxy(SensorEntity):
     ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         """Fetch Tibber prices using a single API call and split by date.
 
-        Makes one API call from start of today (00:00) to end of tomorrow (23:00),
+        Calls tibber.get_prices without parameters to get all available prices,
         then splits the returned prices into today and tomorrow lists based on
         the date in each price entry's start_time.
 
@@ -927,22 +910,14 @@ class CEWPriceSensorProxy(SensorEntity):
                 (runtime_data not available). This allows caller to handle retries.
         """
         now = dt_util.now()
-
-        # Calculate time range boundaries for single API call
-        # From 00:00 today to 23:00 tomorrow
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         tomorrow = today_start + timedelta(days=1)
-        tomorrow_end = tomorrow.replace(hour=TIBBER_TOMORROW_END_HOUR, minute=0)
 
-        _LOGGER.debug(
-            "Fetching Tibber prices (single call): %s to %s",
-            today_start.isoformat(),
-            tomorrow_end.isoformat(),
-        )
+        _LOGGER.debug("Fetching Tibber prices (single call, no parameters)")
 
-        # Single API call for all prices
+        # Single API call for all available prices (no start/end parameters)
         # Note: AttributeError with runtime_data will propagate to caller for retry handling
-        all_prices = await self._call_tibber_get_prices(today_start, tomorrow_end)
+        all_prices = await self._call_tibber_get_prices()
         _LOGGER.debug(
             "Tibber API returned %d total price entries",
             len(all_prices),
