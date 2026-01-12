@@ -253,16 +253,26 @@ async def async_create_notification_automation(hass: HomeAssistant) -> tuple[boo
 
         # Reload automations
         try:
-            await hass.services.async_call(
-                "automation",
-                "reload",
-                {},
-                blocking=True
-            )
-            _LOGGER.info("Automations reloaded successfully")
-            return True, "Automation created successfully!"
+            # Log all available services for debugging
+            _LOGGER.debug("Available services: %s", hass.services.services)
+
+            # Try using homeassistant.reload_config_entry to reload automations
+            if hass.services.has_service("homeassistant", "reload_config_entry"):
+                _LOGGER.info("homeassistant.reload_config_entry service found. Attempting to reload config entry...")
+                await hass.services.async_call(
+                    "homeassistant",
+                    "reload_config_entry",
+                    {},
+                    blocking=True
+                )
+                _LOGGER.info("Config entry reloaded successfully")
+                return True, "Automation created successfully!"
+            else:
+                _LOGGER.warning("homeassistant.reload_config_entry service not found. Automation will load on next restart.")
+                return True, "Automation created! Please restart Home Assistant to activate it."
         except Exception as e:
             _LOGGER.warning(f"Failed to reload automations: {e}. Automation will load on next restart.")
+            _LOGGER.debug("Exception details:", exc_info=True)
             return True, "Automation created! Please restart Home Assistant to activate it."
 
     except Exception as e:
