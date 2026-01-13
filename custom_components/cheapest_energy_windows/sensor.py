@@ -1476,7 +1476,7 @@ class CEWPriceSensorProxy(SensorEntity):
             else:
                 self._attr_native_value = STATE_UNAVAILABLE
 
-            _LOGGER.info(
+            _LOGGER.debug(
                 "Tibber action-based price fetch complete: %d today entries, %d tomorrow entries",
                 len(normalized.get("raw_today", [])),
                 len(normalized.get("raw_tomorrow", [])),
@@ -1536,7 +1536,7 @@ class CEWPriceSensorProxy(SensorEntity):
             return
 
         delay = self.TIBBER_RETRY_DELAY_SECONDS * self._tibber_retry_count
-        _LOGGER.info(
+        _LOGGER.debug(
             "Scheduling Tibber retry %d/%d in %d seconds",
             self._tibber_retry_count,
             self.TIBBER_MAX_RETRIES,
@@ -1549,7 +1549,7 @@ class CEWPriceSensorProxy(SensorEntity):
             """Delayed retry of Tibber fetch."""
             await asyncio.sleep(delay)
             self._tibber_retry_scheduled = False
-            _LOGGER.info(
+            _LOGGER.debug(
                 "Executing Tibber retry %d/%d",
                 self._tibber_retry_count,
                 self.TIBBER_MAX_RETRIES,
@@ -1568,10 +1568,10 @@ class CEWPriceSensorProxy(SensorEntity):
         # Do initial update - if Tibber action is needed, await it directly
         # to ensure data is available before coordinator's first poll
         if self._should_use_tibber_action():
-            _LOGGER.info("Initial setup: Tibber action available, fetching prices synchronously")
+            _LOGGER.debug("Initial setup: Tibber action available, fetching prices synchronously")
             await self._async_fetch_and_update_tibber_prices()
             # Trigger coordinator refresh to pick up the new Tibber data
-            _LOGGER.info("Initial Tibber fetch complete, triggering coordinator refresh")
+            _LOGGER.debug("Initial Tibber fetch complete, triggering coordinator refresh")
             await self.coordinator.async_request_refresh()
         else:
             self._handle_coordinator_update()

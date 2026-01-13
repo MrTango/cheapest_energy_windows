@@ -66,7 +66,7 @@ BASE_USAGE_DISCHARGE_OPTIONS: Final = ["already_included", "subtract_base"]
 BASE_USAGE_AGGRESSIVE_OPTIONS: Final = ["same_as_discharge", "already_included", "subtract_base"]
 
 # Update intervals
-UPDATE_INTERVAL: Final = timedelta(seconds=10)
+UPDATE_INTERVAL: Final = timedelta(seconds=60)
 
 # Sensor states
 STATE_CHARGE: Final = "charge"

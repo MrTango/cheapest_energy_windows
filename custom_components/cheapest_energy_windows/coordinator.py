@@ -65,27 +65,27 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
     async def _async_update_data(self) -> Dict[str, Any]:
         """Fetch data from price sensor."""
-        _LOGGER.info("="*60)
-        _LOGGER.info("COORDINATOR UPDATE START")
-        _LOGGER.info("="*60)
+        _LOGGER.debug("="*60)
+        _LOGGER.debug("COORDINATOR UPDATE START")
+        _LOGGER.debug("="*60)
 
         try:
             # Always use the proxy sensor which normalizes different price sensor formats
             # The proxy sensor handles both Nord Pool and ENTSO-E formats
             price_sensor = "sensor.cew_price_sensor_proxy"
-            _LOGGER.info(f"Using proxy price sensor: {price_sensor}")
+            _LOGGER.debug(f"Using proxy price sensor: {price_sensor}")
 
             # Get the price sensor state
             price_state = self.hass.states.get(price_sensor)
-            _LOGGER.info(f"Price sensor state exists: {price_state is not None}")
+            _LOGGER.debug(f"Price sensor state exists: {price_state is not None}")
 
             if not price_state:
                 _LOGGER.warning(f"Price sensor {price_sensor} not found, returning empty data")
-                _LOGGER.info(f"Available sensors: {[e for e in self.hass.states.async_entity_ids() if 'nordpool' in e or 'price' in e]}")
+                _LOGGER.debug(f"Available sensors: {[e for e in self.hass.states.async_entity_ids() if 'nordpool' in e or 'price' in e]}")
                 return await self._empty_data(f"Price sensor {price_sensor} not found")
 
-            _LOGGER.info(f"Price sensor state: {price_state.state}")
-            _LOGGER.info(f"Price sensor attributes keys: {list(price_state.attributes.keys())}")
+            _LOGGER.debug(f"Price sensor state: {price_state.state}")
+            _LOGGER.debug(f"Price sensor attributes keys: {list(price_state.attributes.keys())}")
 
             # Extract price data
             raw_today = price_state.attributes.get("raw_today", [])
@@ -104,10 +104,10 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 tibber_action_mode = True
                 _LOGGER.debug("Tibber action mode detected from price sensor entity configuration")
 
-            _LOGGER.info(f"Raw today count: {len(raw_today)}")
-            _LOGGER.info(f"Raw tomorrow count: {len(raw_tomorrow)}")
-            _LOGGER.info(f"Tomorrow valid: {tomorrow_valid}")
-            _LOGGER.info(f"Tibber action mode: {tibber_action_mode}")
+            _LOGGER.debug(f"Raw today count: {len(raw_today)}")
+            _LOGGER.debug(f"Raw tomorrow count: {len(raw_tomorrow)}")
+            _LOGGER.debug(f"Tomorrow valid: {tomorrow_valid}")
+            _LOGGER.debug(f"Tibber action mode: {tibber_action_mode}")
 
             # In Tibber action mode, empty raw_today is expected while fetching is in progress
             # Only log warning if we're NOT in Tibber action mode
@@ -116,7 +116,7 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                     _LOGGER.debug("No price data available for today (Tibber action mode, data may still be fetching)")
                 else:
                     _LOGGER.warning("No price data available for today")
-                _LOGGER.info(f"raw_today value: {raw_today}")
+                _LOGGER.debug(f"raw_today value: {raw_today}")
                 return await self._empty_data("No price data available")
 
             # Get configuration from config entry options (Layer 1: no race conditions)
@@ -185,7 +185,7 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             else:
                 # Nothing changed - this is a scheduled update for time-based state changes
                 scheduled_update = True
-                _LOGGER.info("SCHEDULED UPDATE - No price or config changes")
+                _LOGGER.debug("SCHEDULED UPDATE - No price or config changes")
 
             # Store current price data and config hash for next comparison
             self._previous_raw_today = raw_today.copy() if raw_today else []
@@ -214,16 +214,16 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 "tibber_action_mode": tibber_action_mode,
             }
 
-            _LOGGER.info(f"Data structure keys: {list(data.keys())}")
-            _LOGGER.info(f"Price data changed: {price_data_changed}")
-            _LOGGER.info(f"Config changed: {config_changed}")
-            _LOGGER.info("COORDINATOR UPDATE SUCCESS")
-            _LOGGER.info("="*60)
+            _LOGGER.debug(f"Data structure keys: {list(data.keys())}")
+            _LOGGER.debug(f"Price data changed: {price_data_changed}")
+            _LOGGER.debug(f"Config changed: {config_changed}")
+            _LOGGER.debug("COORDINATOR UPDATE SUCCESS")
+            _LOGGER.debug("="*60)
             return data
 
         except Exception as e:
             _LOGGER.error(f"COORDINATOR UPDATE FAILED: {e}", exc_info=True)
-            _LOGGER.info("="*60)
+            _LOGGER.debug("="*60)
             raise UpdateFailed(f"Error fetching data: {e}") from e
 
 
