@@ -113,6 +113,7 @@ action:
                           {{ now_time < quiet_start or now_time >= quiet_end }}
                 sequence:
                   - service: notify.notify
+                    continue_on_error: true
                     data:
                       title: "🔋 CEW: Charging Mode Started"
                       message: >-
@@ -180,6 +181,7 @@ action:
                               {% set quiet_end = states('time.cew_quiet_hours_end') %}
                               {{ now_time < quiet_start or now_time >= quiet_end }}
                   - service: notify.notify
+                    continue_on_error: true
                     data:
                       title: "⚠️ CEW: SOC Safety Misconfigured"
                       message: >-
@@ -225,6 +227,7 @@ action:
                               {% set quiet_end = states('time.cew_quiet_hours_end') %}
                               {{ now_time < quiet_start or now_time >= quiet_end }}
                   - service: notify.notify
+                    continue_on_error: true
                     data:
                       title: "🔋 CEW: Discharge Blocked by SOC Safety"
                       message: >-
@@ -258,6 +261,7 @@ action:
                           {{ now_time < quiet_start or now_time >= quiet_end }}
                 sequence:
                   - service: notify.notify
+                    continue_on_error: true
                     data:
                       title: "⚡ CEW: Discharge Mode Started"
                       message: >-
@@ -325,6 +329,7 @@ action:
                               {% set quiet_end = states('time.cew_quiet_hours_end') %}
                               {{ now_time < quiet_start or now_time >= quiet_end }}
                   - service: notify.notify
+                    continue_on_error: true
                     data:
                       title: "⚠️ CEW: SOC Safety Misconfigured"
                       message: >-
@@ -370,6 +375,7 @@ action:
                               {% set quiet_end = states('time.cew_quiet_hours_end') %}
                               {{ now_time < quiet_start or now_time >= quiet_end }}
                   - service: notify.notify
+                    continue_on_error: true
                     data:
                       title: "🔋 CEW: Aggressive Discharge Blocked by SOC Safety"
                       message: >-
@@ -403,6 +409,7 @@ action:
                           {{ now_time < quiet_start or now_time >= quiet_end }}
                 sequence:
                   - service: notify.notify
+                    continue_on_error: true
                     data:
                       title: "🚨 CEW: Aggressive Discharge Started"
                       message: >-
@@ -464,6 +471,7 @@ action:
                           {{ now_time < quiet_start or now_time >= quiet_end }}
                 sequence:
                   - service: notify.notify
+                    continue_on_error: true
                     data:
                       title: "💤 CEW: Normal/idle Mode Started"
                       message: >-
@@ -521,6 +529,7 @@ action:
                           {{ now_time < quiet_start or now_time >= quiet_end }}
                 sequence:
                   - service: notify.notify
+                    continue_on_error: true
                     data:
                       title: "🔌 CEW: Battery Off"
                       message: >-
@@ -576,6 +585,7 @@ action:
                           {{ now_time < quiet_start or now_time >= quiet_end }}
                 sequence:
                   - service: notify.notify
+                    continue_on_error: true
                     data:
                       title: "⛔ CEW: Automation Disabled"
                       message: >-
@@ -637,6 +647,7 @@ action:
                           {% endif %}
                 sequence:
                   - service: notify.notify
+                    continue_on_error: true
                     data:
                       title: "🔄 CEW: Settings Rotated"
                       message: "Tomorrow's settings have been applied to today"
