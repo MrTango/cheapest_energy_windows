@@ -11,7 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+<<<<<<< HEAD
 - Tibber integration support for real-time electricity prices
+=======
+>>>>>>> 8dfd32a55654a0b8607f65ee380cb68bf3dd7bf8
 - Solar forecast integration using Forecast.Solar sensor
 - Solar optimization toggle switch
 - Configuration options for:
@@ -28,6 +31,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Calculation engine now considers solar production when planning charge/discharge windows
 
+<<<<<<< HEAD
+=======
+### Fixed
+
+- Pass solar forecast data correctly to calculation engine
+- Unknown action error for rotate_tomorrow_settings service
+- Continue on error in notifications
+>>>>>>> 8dfd32a55654a0b8607f65ee380cb68bf3dd7bf8
 
 ## [1.0.0] - 2025-01-01
 
