@@ -599,6 +599,10 @@ class CEWTomorrowSensor(CEWBaseSensor):
             ATTR_AVG_CHEAP_PRICE: result.get("avg_cheap_price", 0.0),
             ATTR_AVG_EXPENSIVE_PRICE: result.get("avg_expensive_price", 0.0),
             ATTR_PLANNED_TOTAL_COST: result.get("planned_total_cost", 0.0),
+            # Solar forecast attributes
+            ATTR_SOLAR_OPTIMIZATION_ACTIVE: result.get("solar_optimization_active", False),
+            ATTR_SOLAR_FORECAST_TOTAL_WH: result.get("solar_forecast_total_wh", 0.0),
+            ATTR_NET_IMPORT_WH: result.get("net_import_wh", 0.0),
             "last_config_update": last_config_update.isoformat() if last_config_update else None,
         }
 
