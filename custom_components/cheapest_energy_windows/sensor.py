@@ -320,6 +320,12 @@ class CEWTodaySensor(CEWBaseSensor):
         scheduled_update = self.coordinator.data.get("scheduled_update", False)
 
         config = self.coordinator.data.get("config", {})
+        # FIX: Merge solar forecast data into config for calculation engine
+        # The coordinator stores solar data at root level, but calculation engine expects it in config
+        config["solar_forecast"] = self.coordinator.data.get("solar_forecast", [])
+        config["solar_forecast_today"] = self.coordinator.data.get("solar_forecast_today", [])
+        config["solar_forecast_tomorrow"] = self.coordinator.data.get("solar_forecast_tomorrow", [])
+
         current_automation_enabled = config.get("automation_enabled", True)
 
         # Check if calculation-affecting config changed
@@ -505,6 +511,12 @@ class CEWTomorrowSensor(CEWBaseSensor):
         scheduled_update = self.coordinator.data.get("scheduled_update", False)
 
         config = self.coordinator.data.get("config", {})
+        # FIX: Merge solar forecast data into config for calculation engine
+        # For tomorrow sensor, use tomorrow's solar forecast as the primary solar_forecast
+        config["solar_forecast"] = self.coordinator.data.get("solar_forecast_tomorrow", [])
+        config["solar_forecast_today"] = self.coordinator.data.get("solar_forecast_today", [])
+        config["solar_forecast_tomorrow"] = self.coordinator.data.get("solar_forecast_tomorrow", [])
+
         current_automation_enabled = config.get("automation_enabled", True)
 
         # Check if calculation-affecting config changed
