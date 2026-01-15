@@ -177,13 +177,31 @@ class WindowCalculationEngine:
                     prices_for_discharge_calc = discharge_override_prices
                     _LOGGER.debug(f"Discharge mode: {len(charge_filtered)} prices for charging, {len(discharge_override_prices)} for discharge")
 
+        # Extract solar optimization configuration
+        solar_optimization_enabled = config.get("solar_optimization_enabled", False)
+        solar_forecast = config.get("solar_forecast", []) if solar_optimization_enabled else []
+
+        # Build solar config dict for charge window calculation
+        solar_config = {
+            "solar_optimization_enabled": solar_optimization_enabled,
+            "battery_usable_capacity": config.get("battery_usable_capacity", 10.0),
+            "skip_charge_solar_threshold": config.get("skip_charge_solar_threshold", 80),
+        }
+
+        _LOGGER.debug(
+            f"Solar optimization: enabled={solar_optimization_enabled}, "
+            f"forecast_entries={len(solar_forecast) if solar_forecast else 0}"
+        )
+
         # Find windows using the pre-filtered prices
         charge_windows = self._find_charge_windows(
             prices_for_charge_calc,  # Use filtered prices
             num_charge_windows,
             cheap_percentile,
             min_spread,
-            min_price_diff
+            min_price_diff,
+            solar_forecast=solar_forecast if solar_optimization_enabled else None,
+            solar_config=solar_config if solar_optimization_enabled else None
         )
 
         discharge_windows = self._find_discharge_windows(
@@ -422,11 +440,43 @@ class WindowCalculationEngine:
         num_windows: int,
         cheap_percentile: float,
         min_spread: float,
-        min_price_diff: float
+        min_price_diff: float,
+        solar_forecast: Optional[List[Dict[str, Any]]] = None,
+        solar_config: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
-        """Find cheapest windows for charging."""
+        """Find cheapest windows for charging.
+
+        When solar optimization is enabled, windows may be skipped if solar forecast
+        indicates sufficient production to fill the battery during that period.
+
+        Args:
+            prices: List of processed price data
+            num_windows: Maximum number of charge windows to select
+            cheap_percentile: Percentile threshold for cheap prices
+            min_spread: Minimum spread percentage required
+            min_price_diff: Minimum price difference required
+            solar_forecast: Optional list of solar forecast entries with timestamp, watts, wh
+            solar_config: Optional dict with solar optimization config:
+                - solar_optimization_enabled: bool
+                - battery_usable_capacity: float (kWh)
+                - skip_charge_solar_threshold: float (percentage)
+
+        Returns:
+            List of selected charge windows
+        """
         if not prices or num_windows <= 0:
             return []
+
+        # Extract solar optimization settings
+        solar_enabled = False
+        battery_capacity_wh = 0.0
+        skip_threshold = 80.0
+
+        if solar_config:
+            solar_enabled = solar_config.get("solar_optimization_enabled", False)
+            # Convert kWh to Wh for internal calculations
+            battery_capacity_wh = solar_config.get("battery_usable_capacity", 10.0) * 1000
+            skip_threshold = solar_config.get("skip_charge_solar_threshold", 80)
 
         # Convert to numpy array for efficient operations
         price_array = np.array([p["price"] for p in prices])
@@ -450,11 +500,34 @@ class WindowCalculationEngine:
 
         # Progressive selection with spread check
         selected = []
+        skipped_due_to_solar = 0
         expensive_avg = np.mean(price_array[price_array > np.percentile(price_array, 100 - cheap_percentile)])
 
         for candidate in candidates:
             if len(selected) >= num_windows:
                 break
+
+            # Check solar optimization - skip charging if solar will fill the battery
+            if solar_enabled and solar_forecast and battery_capacity_wh > 0:
+                # Get solar production expected for this window
+                window_solar_wh = self._get_solar_for_window(
+                    solar_forecast,
+                    candidate["timestamp"],
+                    candidate["duration"]
+                )
+
+                # Check if we should skip this window due to solar
+                if self._should_skip_charging(
+                    window_solar_wh,
+                    battery_capacity_wh,
+                    skip_threshold
+                ):
+                    _LOGGER.debug(
+                        f"Skipping charge window at {candidate['timestamp'].strftime('%H:%M')} "
+                        f"due to solar forecast ({window_solar_wh:.0f}Wh expected)"
+                    )
+                    skipped_due_to_solar += 1
+                    continue
 
             # Test spread with this window
             test_prices = [s["price"] for s in selected] + [candidate["price"]]
@@ -467,6 +540,11 @@ class WindowCalculationEngine:
 
                 if spread_pct >= min_spread and price_diff >= min_price_diff:
                     selected.append(candidate)
+
+        if skipped_due_to_solar > 0:
+            _LOGGER.debug(
+                f"Solar optimization: skipped {skipped_due_to_solar} charge windows due to solar forecast"
+            )
 
         return selected
 
