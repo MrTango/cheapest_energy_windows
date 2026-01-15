@@ -1,12 +1,12 @@
-# Cheapest Energy Windows for Home Assistant (Tibber Fork)
+# Cheapest Energy Windows NG for Home Assistant
 
-[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=cheapest-energy-windows&repository=cheapest_energy_windows&category=integration)
-[![GitHub Release](https://img.shields.io/github/release/cheapest-energy-windows/cheapest_energy_windows.svg)](https://github.com/cheapest-energy-windows/cheapest_energy_windows/releases)
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=MrTango&repository=cheapest_energy_windows&category=integration)
+[![GitHub Release](https://img.shields.io/github/release/MrTango/cheapest_energy_windows.svg)](https://github.com/MrTango/cheapest_energy_windows/releases)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Optimize your energy consumption and battery storage by automatically identifying the cheapest charging windows and most expensive discharging periods based on dynamic electricity prices from Nord Pool or ENTSO-E.
 
-## 🌟 Why Cheapest Energy Windows?
+## 🌟 Why Cheapest Energy Windows NG?
 
 Unlike other energy management solutions, this integration provides:
 
@@ -56,11 +56,11 @@ This is not just another energy monitor - it's a complete battery management sys
 
 ## Dashboard Preview
 
-![Cheapest Energy Windows Dashboard](CEW-Dashboard.jpg?v=2)
+![Cheapest Energy Windows NG Dashboard](CEW-Dashboard.jpg?v=2)
 
 > **✨ NEW: Automated Dashboard Installation Available!**
 > The dashboard is now available as a **separate HACS package** that automatically updates!
-> Install it from: [Cheapest Energy Windows Dashboard](https://github.com/cheapest-energy-windows/cheapest_energy_windows_dashboard)
+> Install it from: [Cheapest Energy Windows NG Dashboard](https://github.com/MrTango/cheapest_energy_windows_dashboard)
 > See the [Dashboard Installation](#dashboard-installation) section below for details.
 
 ## Supported Price Sensors
@@ -115,11 +115,11 @@ The integration automatically normalizes different sensor formats through a prox
 
 1. Open HACS in your Home Assistant instance
 2. Click on "Integrations"
-3. Search for "Cheapest Energy Windows"
+3. Search for "Cheapest Energy Windows NG"
 4. Click "Download"
 5. Restart Home Assistant
 6. Go to Settings > Devices & Services > "Add Integration"
-7. Search for "Cheapest Energy Windows"
+7. Search for "Cheapest Energy Windows NG"
 8. Follow the configuration wizard
 
 ### Manual Installation
@@ -128,7 +128,7 @@ The integration automatically normalizes different sensor formats through a prox
 2. Restart Home Assistant
 3. Go to Settings > Devices & Services
 4. Click "Add Integration"
-5. Search for "Cheapest Energy Windows"
+5. Search for "Cheapest Energy Windows NG"
 6. Follow the configuration wizard
 
 ### Docker Configuration Note
@@ -187,7 +187,7 @@ The integration includes a comprehensive pre-built dashboard for monitoring and 
    - Open HACS in Home Assistant
    - Go to **Frontend** section
    - Click the 3 dots menu (top right) → **"Custom repositories"**
-   - Add repository: `https://github.com/cheapest-energy-windows/cheapest_energy_windows_dashboard`
+   - Add repository: `https://github.com/MrTango/cheapest_energy_windows_dashboard`
    - Select category: **"Dashboard"**
    - Click **"Add"** then find it in the list and click **"Download"**
 
@@ -351,7 +351,7 @@ First, identify the entities that control your battery:
 #### Step 2: Edit the Automations
 
 1. Go to **Settings > Automations & Scenes**
-2. Find the automations created by CEW (look for "CEW" or "Cheapest Energy Windows" prefix)
+2. Find the automations created by CEW (look for "CEW" or "Cheapest Energy Windows NG" prefix)
 3. Click on each automation to edit it
 4. Add your battery control actions to the corresponding states
 

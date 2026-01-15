@@ -1,6 +1,6 @@
-"""Sensor platform for Cheapest Energy Windows.
+"""Sensor platform for Cheapest Energy Windows NG.
 
-This module provides sensor entities for the Cheapest Energy Windows integration:
+This module provides sensor entities for the Cheapest Energy Windows NG integration:
 - CEWTodaySensor: Today's energy charging/discharging windows
 - CEWTomorrowSensor: Tomorrow's energy windows (when available)
 - CEWPriceSensorProxy: Proxy sensor that normalizes various price sources
@@ -172,7 +172,7 @@ async def async_setup_entry(
     config_entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up Cheapest Energy Windows sensors."""
+    """Set up Cheapest Energy Windows NG sensors."""
     coordinator = hass.data[DOMAIN][config_entry.entry_id]["coordinator"]
 
     sensors = [
@@ -228,7 +228,7 @@ class CEWBaseSensor(CoordinatorEntity, SensorEntity):
         """Return device information."""
         return {
             "identifiers": {(DOMAIN, self.config_entry.entry_id)},
-            "name": "Cheapest Energy Windows",
+            "name": "Cheapest Energy Windows NG",
             "manufacturer": "Community",
             "model": "Energy Optimizer",
             "sw_version": VERSION,
@@ -658,7 +658,7 @@ class CEWPriceSensorProxy(SensorEntity):
         """Return device information."""
         return {
             "identifiers": {(DOMAIN, self.config_entry.entry_id)},
-            "name": "Cheapest Energy Windows",
+            "name": "Cheapest Energy Windows NG",
             "manufacturer": "Community",
             "model": "Energy Optimizer",
             "sw_version": VERSION,
@@ -1630,7 +1630,7 @@ class CEWLastCalculationSensor(CoordinatorEntity, SensorEntity):
         """Return device information."""
         return {
             "identifiers": {(DOMAIN, self.config_entry.entry_id)},
-            "name": "Cheapest Energy Windows",
+            "name": "Cheapest Energy Windows NG",
             "manufacturer": "Community",
             "model": "Energy Optimizer",
             "sw_version": VERSION,

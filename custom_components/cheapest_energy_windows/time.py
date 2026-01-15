@@ -1,4 +1,4 @@
-"""Time entities for Cheapest Energy Windows."""
+"""Time entities for Cheapest Energy Windows NG."""
 from __future__ import annotations
 
 import logging
@@ -31,7 +31,7 @@ async def async_setup_entry(
     config_entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up Cheapest Energy Windows time entities."""
+    """Set up Cheapest Energy Windows NG time entities."""
 
     times = []
 
@@ -97,7 +97,7 @@ class CEWTime(TimeEntity):
         """Return device information."""
         return {
             "identifiers": {(DOMAIN, self._config_entry.entry_id)},
-            "name": "Cheapest Energy Windows",
+            "name": "Cheapest Energy Windows NG",
             "manufacturer": "Community",
             "model": "Energy Optimizer",
             "sw_version": VERSION,

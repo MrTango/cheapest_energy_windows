@@ -1,4 +1,4 @@
-"""Config flow for Cheapest Energy Windows integration."""
+"""Config flow for Cheapest Energy Windows NG integration."""
 from __future__ import annotations
 
 import logging
@@ -73,7 +73,7 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
     if price_sensor == "tibber_action":
         if not hass.services.has_service("tibber", "get_prices"):
             raise ValueError("Tibber get_prices action not available. Please ensure the Tibber integration is configured.")
-        return {"title": "Cheapest Energy Windows"}
+        return {"title": "Cheapest Energy Windows NG"}
 
     if price_sensor:
         sensor_state = hass.states.get(price_sensor)
@@ -105,11 +105,11 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
         if has_nordpool and attrs.get('price_in_cents') is True:
             raise ValueError(f"Price sensor {price_sensor} uses cents/kWh. Only EUR/kWh sensors are supported.")
 
-    return {"title": "Cheapest Energy Windows"}
+    return {"title": "Cheapest Energy Windows NG"}
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for Cheapest Energy Windows."""
+    """Handle a config flow for Cheapest Energy Windows NG."""
 
     VERSION = 1
 
@@ -656,7 +656,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             # Complete setup
             return self.async_create_entry(
-                title="Cheapest Energy Windows",
+                title="Cheapest Energy Windows NG",
                 data=self.data,
                 options=self.options,
             )
@@ -731,7 +731,7 @@ Total: 71 entities
                        "**To install the dashboard:**\n\n"
                        "1. Go to **HACS** → **Frontend**\n"
                        "2. Click **Explore & Download Repositories**\n"
-                       "3. Search for **\"Cheapest Energy Windows Dashboard\"**\n"
+                       "3. Search for **\"Cheapest Energy Windows NG Dashboard\"**\n"
                        "4. Click **Download**\n"
                        "5. Follow the HACS installation instructions\n"
                        "6. The dashboard will appear in your sidebar automatically\n\n"
@@ -755,7 +755,7 @@ Total: 71 entities
 
 
 class CEWOptionsFlow(config_entries.OptionsFlow):
-    """Handle options for Cheapest Energy Windows."""
+    """Handle options for Cheapest Energy Windows NG."""
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         """Initialize options flow."""

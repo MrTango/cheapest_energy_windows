@@ -1,4 +1,4 @@
-"""Data coordinator for Cheapest Energy Windows."""
+"""Data coordinator for Cheapest Energy Windows NG."""
 from __future__ import annotations
 
 import asyncio
@@ -31,7 +31,7 @@ _LOGGER = logging.getLogger(LOGGER_NAME)
 
 
 class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
-    """Class to manage fetching Cheapest Energy Windows data."""
+    """Class to manage fetching Cheapest Energy Windows NG data."""
 
     def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry) -> None:
         """Initialize the coordinator."""

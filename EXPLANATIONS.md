@@ -1,4 +1,4 @@
-# Cheapest Energy Windows - Parameter Explanations
+# Cheapest Energy Windows NG - Parameter Explanations
 
 This document explains all configuration parameters, how they interact, and provides examples for different use cases.
 

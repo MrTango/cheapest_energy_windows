@@ -1,4 +1,4 @@
-"""The Cheapest Energy Windows integration."""
+"""The Cheapest Energy Windows NG integration."""
 from __future__ import annotations
 
 import logging
@@ -28,14 +28,14 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
 async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
-    """Set up the Cheapest Energy Windows component."""
+    """Set up the Cheapest Energy Windows NG component."""
     # This is called when the component is set up through configuration.yaml
     # We only support config_flow, so we just return True
     return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up Cheapest Energy Windows from a config entry."""
+    """Set up Cheapest Energy Windows NG from a config entry."""
     _LOGGER.info("="*60)
     _LOGGER.info("INTEGRATION SETUP START")
     _LOGGER.info("="*60)
@@ -50,12 +50,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         identifiers={(DOMAIN, entry.entry_id)},
         manufacturer="Community",
         model="Energy Optimizer",
-        name="Cheapest Energy Windows",
+        name="Cheapest Energy Windows NG",
         sw_version=VERSION,
     )
 
     # No entity creation needed - platforms will create their own entities
-    _LOGGER.info("Setting up Cheapest Energy Windows integration")
+    _LOGGER.info("Setting up Cheapest Energy Windows NG integration")
 
     # Set up the coordinator for data fetching
     coordinator = CEWCoordinator(hass, entry)
@@ -110,7 +110,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
-    _LOGGER.info("Unloading Cheapest Energy Windows integration")
+    _LOGGER.info("Unloading Cheapest Energy Windows NG integration")
 
     # Unload platforms
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

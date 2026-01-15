@@ -1,4 +1,4 @@
-"""Services for Cheapest Energy Windows."""
+"""Services for Cheapest Energy Windows NG."""
 from __future__ import annotations
 
 import logging
@@ -95,7 +95,7 @@ async def async_create_notification_automation(hass: HomeAssistant) -> tuple[boo
             new_automation = {
             "id": automation_id,
             "alias": "CEW - Battery Control Automation",
-            "description": "Battery control automation for Cheapest Energy Windows (add your battery actions to each trigger)",
+            "description": "Battery control automation for Cheapest Energy Windows NG (add your battery actions to each trigger)",
             "mode": "queued",
             "max": 10,
             "trigger": [
@@ -281,7 +281,7 @@ async def async_create_notification_automation(hass: HomeAssistant) -> tuple[boo
 
 
 async def async_setup_services(hass: HomeAssistant) -> None:
-    """Set up services for Cheapest Energy Windows."""
+    """Set up services for Cheapest Energy Windows NG."""
 
     async def handle_rotate_settings(call: ServiceCall) -> None:
         """Handle the rotate_settings service call."""

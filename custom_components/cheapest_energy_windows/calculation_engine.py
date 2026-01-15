@@ -1,4 +1,4 @@
-"""Calculation engine for Cheapest Energy Windows."""
+"""Calculation engine for Cheapest Energy Windows NG."""
 from __future__ import annotations
 
 from datetime import datetime, timedelta

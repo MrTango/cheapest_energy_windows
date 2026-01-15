@@ -1,6 +1,6 @@
-# Contributing to Cheapest Energy Windows
+# Contributing to Cheapest Energy Windows NG
 
-Thank you for your interest in contributing to Cheapest Energy Windows!
+Thank you for your interest in contributing to Cheapest Energy Windows NG!
 
 ## Getting Started
 

@@ -1,4 +1,4 @@
-"""Select entities for Cheapest Energy Windows."""
+"""Select entities for Cheapest Energy Windows NG."""
 from __future__ import annotations
 
 import logging
@@ -25,7 +25,7 @@ async def async_setup_entry(
     config_entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up Cheapest Energy Windows select entities."""
+    """Set up Cheapest Energy Windows NG select entities."""
 
     selects = []
 
@@ -85,7 +85,7 @@ class CEWSelect(SelectEntity):
         """Return device information."""
         return {
             "identifiers": {(DOMAIN, self._config_entry.entry_id)},
-            "name": "Cheapest Energy Windows",
+            "name": "Cheapest Energy Windows NG",
             "manufacturer": "Community",
             "model": "Energy Optimizer",
             "sw_version": VERSION,

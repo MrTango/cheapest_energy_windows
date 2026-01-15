@@ -1,4 +1,4 @@
-"""Constants for Cheapest Energy Windows."""
+"""Constants for Cheapest Energy Windows NG."""
 from datetime import timedelta
 from typing import Final
 

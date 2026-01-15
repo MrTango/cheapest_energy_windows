@@ -2,8 +2,8 @@
   "config": {
     "step": {
       "user": {
-        "title": "Cheapest Energy Windows Setup",
-        "description": "Welcome to Cheapest Energy Windows!\n\nThis integration helps you optimize energy costs by finding the cheapest times to charge and most expensive times to discharge your battery system.\n\nHow would you like to proceed?",
+        "title": "Cheapest Energy Windows NG Setup",
+        "description": "Welcome to Cheapest Energy Windows NG!\n\nThis integration helps you optimize energy costs by finding the cheapest times to charge and most expensive times to discharge your battery system.\n\nHow would you like to proceed?",
         "data": {
           "setup_type": "Setup Type"
         },
@@ -158,15 +158,15 @@
       "unknown": "Unexpected error occurred"
     },
     "abort": {
-      "already_configured": "Cheapest Energy Windows is already configured",
+      "already_configured": "Cheapest Energy Windows NG is already configured",
       "cannot_connect": "Failed to connect to price sensor"
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "Cheapest Energy Windows Options",
-        "description": "Adjust the configuration for Cheapest Energy Windows",
+        "title": "Cheapest Energy Windows NG Options",
+        "description": "Adjust the configuration for Cheapest Energy Windows NG",
         "data": {
           "price_sensor": "Price Sensor",
           "vat_rate": "VAT Rate",

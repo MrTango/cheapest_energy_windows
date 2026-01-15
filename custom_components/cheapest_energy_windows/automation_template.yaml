@@ -1,5 +1,5 @@
 ###############################################################################
-# Cheapest Energy Windows - Battery Control Automation Template
+# Cheapest Energy Windows NG - Battery Control Automation Template
 #
 # This automation triggers on CEW state changes and allows you to control
 # your battery system based on detected charging/discharging windows.
@@ -14,7 +14,7 @@
 ###############################################################################
 
 alias: CEW - Battery Control (Auto-Managed - DO NOT EDIT OR DELETE)
-description: Control your home battery based on Cheapest Energy Windows calculations
+description: Control your home battery based on Cheapest Energy Windows NG calculations
 mode: queued
 max: 10
 

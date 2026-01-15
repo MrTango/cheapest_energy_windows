@@ -1,4 +1,4 @@
-"""Automation handler for Cheapest Energy Windows."""
+"""Automation handler for Cheapest Energy Windows NG."""
 from __future__ import annotations
 
 from datetime import datetime, time
@@ -28,7 +28,7 @@ async def async_setup_automation(hass: HomeAssistant) -> "AutomationHandler":
 
 
 class AutomationHandler:
-    """Handles automations for Cheapest Energy Windows."""
+    """Handles automations for Cheapest Energy Windows NG."""
 
     def __init__(self, hass: HomeAssistant) -> None:
         """Initialize the automation handler."""
