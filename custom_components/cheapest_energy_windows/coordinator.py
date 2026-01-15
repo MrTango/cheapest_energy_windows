@@ -23,6 +23,8 @@ from .const import (
     DEFAULT_BASE_USAGE_DISCHARGE_STRATEGY,
     DEFAULT_BASE_USAGE_AGGRESSIVE_STRATEGY,
     PREFIX,
+    DEFAULT_SOLAR_FORECAST_SENSOR,
+    DEFAULT_SOLAR_OPTIMIZATION_ENABLED,
 )
 
 _LOGGER = logging.getLogger(LOGGER_NAME)
@@ -366,4 +368,164 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "error": reason,
             # Tibber action mode - False when empty/error data
             "tibber_action_mode": False,
+        }
+
+    async def _get_solar_forecast_data(self) -> Dict[str, Any]:
+        """Get solar forecast data from Forecast.Solar sensor.
+
+        Retrieves data from the configured Forecast.Solar sensor and normalizes
+        it to an internal format for use in charging optimization.
+
+        Returns:
+            Dict containing:
+                - solar_forecast: List of dicts with timestamp, watts, wh
+                - solar_forecast_today: Filtered list for today only
+                - solar_forecast_tomorrow: Filtered list for tomorrow only
+                - total_today_wh: Total Wh forecast for today
+                - total_tomorrow_wh: Total Wh forecast for tomorrow
+                - sensor_available: Boolean indicating if sensor data is available
+        """
+        # Get solar forecast sensor from config
+        options = self.config_entry.options
+        solar_sensor_id = options.get("solar_forecast_sensor", DEFAULT_SOLAR_FORECAST_SENSOR)
+        solar_enabled = options.get("solar_optimization_enabled", DEFAULT_SOLAR_OPTIMIZATION_ENABLED)
+
+        # Return empty data if solar optimization is disabled or no sensor configured
+        if not solar_enabled or not solar_sensor_id:
+            _LOGGER.debug("Solar optimization disabled or no sensor configured")
+            return self._empty_solar_data()
+
+        # Get the solar forecast sensor state
+        solar_state = self.hass.states.get(solar_sensor_id)
+
+        if not solar_state:
+            _LOGGER.warning(f"Solar forecast sensor {solar_sensor_id} not found")
+            return self._empty_solar_data()
+
+        if solar_state.state in ("unavailable", "unknown"):
+            _LOGGER.debug(f"Solar forecast sensor {solar_sensor_id} is {solar_state.state}")
+            return self._empty_solar_data()
+
+        _LOGGER.debug(f"Solar forecast sensor state: {solar_state.state}")
+        _LOGGER.debug(f"Solar forecast sensor attributes: {list(solar_state.attributes.keys())}")
+
+        # Extract forecast data from sensor attributes
+        # Forecast.Solar provides data in several formats:
+        # - watts: dict of timestamp -> instantaneous watts
+        # - wh_period: dict of timestamp -> Wh for each period
+        # - wh_days: dict of date -> total Wh for day
+        watts_data = solar_state.attributes.get("watts", {})
+        wh_period_data = solar_state.attributes.get("wh_period", {})
+        wh_days_data = solar_state.attributes.get("wh_days", {})
+
+        # Normalize the forecast data to internal format
+        solar_forecast = []
+        now = dt_util.now()
+        today = now.date()
+        tomorrow = today + timedelta(days=1)
+
+        # Parse wh_period data (preferred) or watts data
+        data_source = wh_period_data if wh_period_data else watts_data
+
+        for timestamp_str, value in data_source.items():
+            try:
+                # Parse timestamp - Forecast.Solar uses local timezone
+                if isinstance(timestamp_str, str):
+                    # Try ISO format first
+                    try:
+                        timestamp = datetime.fromisoformat(timestamp_str)
+                    except ValueError:
+                        # Try parsing as datetime string
+                        timestamp = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
+
+                    # Ensure timezone awareness
+                    if timestamp.tzinfo is None:
+                        timestamp = dt_util.as_local(timestamp)
+                else:
+                    timestamp = timestamp_str
+
+                # Get watts and wh values
+                wh_value = wh_period_data.get(timestamp_str, 0) if wh_period_data else 0
+                watts_value = watts_data.get(timestamp_str, 0) if watts_data else value
+
+                # Handle potential non-numeric values
+                try:
+                    wh_value = float(wh_value) if wh_value else 0
+                    watts_value = float(watts_value) if watts_value else 0
+                except (ValueError, TypeError):
+                    wh_value = 0
+                    watts_value = 0
+
+                solar_forecast.append({
+                    "timestamp": timestamp,
+                    "watts": watts_value,
+                    "wh": wh_value,
+                })
+
+            except (ValueError, TypeError) as e:
+                _LOGGER.debug(f"Error parsing solar forecast timestamp {timestamp_str}: {e}")
+                continue
+
+        # Sort by timestamp
+        solar_forecast.sort(key=lambda x: x["timestamp"])
+
+        # Filter for today and tomorrow
+        solar_forecast_today = [
+            entry for entry in solar_forecast
+            if entry["timestamp"].date() == today
+        ]
+        solar_forecast_tomorrow = [
+            entry for entry in solar_forecast
+            if entry["timestamp"].date() == tomorrow
+        ]
+
+        # Get daily totals from wh_days if available
+        total_today_wh = 0
+        total_tomorrow_wh = 0
+
+        if wh_days_data:
+            for date_str, wh_value in wh_days_data.items():
+                try:
+                    if isinstance(date_str, str):
+                        date_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
+                    else:
+                        date_obj = date_str
+
+                    wh_float = float(wh_value) if wh_value else 0
+
+                    if date_obj == today:
+                        total_today_wh = wh_float
+                    elif date_obj == tomorrow:
+                        total_tomorrow_wh = wh_float
+                except (ValueError, TypeError) as e:
+                    _LOGGER.debug(f"Error parsing wh_days date {date_str}: {e}")
+                    continue
+        else:
+            # Calculate totals from period data
+            total_today_wh = sum(entry["wh"] for entry in solar_forecast_today)
+            total_tomorrow_wh = sum(entry["wh"] for entry in solar_forecast_tomorrow)
+
+        _LOGGER.debug(f"Solar forecast entries: {len(solar_forecast)}")
+        _LOGGER.debug(f"Solar forecast today entries: {len(solar_forecast_today)}")
+        _LOGGER.debug(f"Solar forecast tomorrow entries: {len(solar_forecast_tomorrow)}")
+        _LOGGER.debug(f"Total today Wh: {total_today_wh}, Total tomorrow Wh: {total_tomorrow_wh}")
+
+        return {
+            "solar_forecast": solar_forecast,
+            "solar_forecast_today": solar_forecast_today,
+            "solar_forecast_tomorrow": solar_forecast_tomorrow,
+            "total_today_wh": total_today_wh,
+            "total_tomorrow_wh": total_tomorrow_wh,
+            "sensor_available": True,
+        }
+
+    def _empty_solar_data(self) -> Dict[str, Any]:
+        """Return empty solar forecast data structure."""
+        return {
+            "solar_forecast": [],
+            "solar_forecast_today": [],
+            "solar_forecast_tomorrow": [],
+            "total_today_wh": 0,
+            "total_tomorrow_wh": 0,
+            "sensor_available": False,
         }
