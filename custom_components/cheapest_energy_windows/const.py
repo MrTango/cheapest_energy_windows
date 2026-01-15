@@ -27,6 +27,13 @@ CONF_BASE_USAGE_IDLE_STRATEGY: Final = "base_usage_idle_strategy"
 CONF_BASE_USAGE_DISCHARGE_STRATEGY: Final = "base_usage_discharge_strategy"
 CONF_BASE_USAGE_AGGRESSIVE_STRATEGY: Final = "base_usage_aggressive_strategy"
 
+# Solar forecast configuration keys
+CONF_SOLAR_FORECAST_SENSOR: Final = "solar_forecast_sensor"
+CONF_SOLAR_OPTIMIZATION_ENABLED: Final = "solar_optimization_enabled"
+CONF_BATTERY_USABLE_CAPACITY: Final = "battery_usable_capacity"
+CONF_SKIP_CHARGE_SOLAR_THRESHOLD: Final = "skip_charge_solar_threshold"
+CONF_CONSUMPTION_ESTIMATE: Final = "consumption_estimate"
+
 # Default values
 DEFAULT_PRICE_SENSOR: Final = ""
 DEFAULT_VAT_RATE: Final = 0.21
@@ -58,6 +65,13 @@ DEFAULT_BASE_USAGE_CHARGE_STRATEGY: Final = "grid_covers_both"
 DEFAULT_BASE_USAGE_IDLE_STRATEGY: Final = "battery_covers"
 DEFAULT_BASE_USAGE_DISCHARGE_STRATEGY: Final = "subtract_base"
 DEFAULT_BASE_USAGE_AGGRESSIVE_STRATEGY: Final = "same_as_discharge"
+
+# Solar forecast default values
+DEFAULT_SOLAR_FORECAST_SENSOR: Final = ""
+DEFAULT_SOLAR_OPTIMIZATION_ENABLED: Final = False
+DEFAULT_BATTERY_USABLE_CAPACITY: Final = 10.0
+DEFAULT_SKIP_CHARGE_SOLAR_THRESHOLD: Final = 80
+DEFAULT_CONSUMPTION_ESTIMATE: Final = 500
 
 # Base usage strategy options
 BASE_USAGE_CHARGE_OPTIONS: Final = ["grid_covers_both", "battery_covers_base"]
@@ -206,6 +220,13 @@ CALCULATION_AFFECTING_KEYS: Final = {
 
     # Window duration
     "pricing_window_duration",
+
+    # Solar forecast optimization
+    "solar_optimization_enabled",
+    "solar_forecast_sensor",
+    "battery_usable_capacity",
+    "skip_charge_solar_threshold",
+    "consumption_estimate",
 }
 
 # Configuration keys that DON'T affect calculation (UI/notification settings)
