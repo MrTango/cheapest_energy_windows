@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.2] - 2025-01-15
+
+### Changed
+
+- **BREAKING**: Renamed integration domain from `cheapest_energy_windows_tibber` to `cheapest_energy_windows_ng`
+- **BREAKING**: Renamed folder from `custom_components/cheapest_energy_windows` to `custom_components/cheapest_energy_windows_ng`
+- Updated all service calls to use new domain name
+- Updated documentation and workflow files with new paths
+
+### Migration
+
+Users upgrading from 2.0.1 or earlier need to:
+1. Remove the old integration from Home Assistant
+2. Delete the old `custom_components/cheapest_energy_windows` folder
+3. Install the new version
+4. Re-add the integration through Settings > Devices & Services
+
 ## [2.0.1] - 2025-01-15
 
 ### Changed
