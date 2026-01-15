@@ -138,6 +138,16 @@ async def async_setup_entry(
             "mdi:robot",
             r"^(automation\.|script\.|scene\.)[a-z0-9_]+$|^not_configured$"
         ),
+        # Solar forecast configuration (optional)
+        CEWText(
+            hass,
+            config_entry,
+            "solar_forecast_sensor",
+            "Solar Forecast Sensor",
+            "not_configured",
+            "mdi:solar-power",
+            None  # No pattern validation for optional entities
+        ),
     ]
 
     async_add_entities(texts)
