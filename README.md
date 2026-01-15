@@ -42,6 +42,10 @@ This is not just another energy monitor - it's a complete battery management sys
   - [How Automations Work](#how-automations-work)
   - [Initial Setup: Notification-Only Mode](#initial-setup-notification-only-mode)
   - [Adding Battery Control Actions](#adding-battery-control-actions)
+- [Solar Forecast Optimization](#solar-forecast-optimization)
+  - [How It Works](#how-solar-optimization-works)
+  - [Configuration](#solar-configuration)
+  - [Supported Sensors](#supported-solar-sensors)
 - [Sensor Attributes](#sensor-attributes)
 - [Dashboard Features](#dashboard-features)
 - [Troubleshooting](#troubleshooting)
@@ -90,6 +94,7 @@ The integration automatically normalizes different sensor formats through a prox
 - **📱 Smart Notifications**: Configurable notifications for all state changes with quiet hours support
 - **🛡️ SOC Safety Protection**: Automatic battery protection based on State of Charge limits
 - **💰 Price Override**: Automatically charge when prices drop below threshold, regardless of calculated windows
+- **☀️ Solar Forecast Optimization**: Skip grid charging when solar production will fill your battery; prioritize discharge during solar gaps
 
 ### Core Features
 
@@ -250,25 +255,27 @@ The algorithm operates on either **15-minute or 1-hour intervals** depending on 
 
 ### Entities Created
 
-The integration creates 64 configuration entities:
+The integration creates 69 configuration entities:
 
 #### Sensors
 - `sensor.cew_today`: Current state and window information for today
 - `sensor.cew_tomorrow`: Window information for tomorrow (when available)
 
-#### Input Numbers (24)
+#### Input Numbers (27)
 - Window counts (charging, expensive)
 - Percentiles (cheap, expensive)
 - Spreads (minimum, discharge, aggressive)
 - Costs (VAT, tax, additional)
 - Battery parameters (power, efficiency)
 - Price overrides
+- Solar optimization (battery capacity, consumption estimate, skip threshold)
 
-#### Input Booleans (18)
+#### Input Booleans (19)
 - Automation enable/disable
 - Notification settings
 - Time override enables
 - Tomorrow settings
+- Solar optimization enabled
 
 #### Input Selects (7)
 - Window duration mode
@@ -278,8 +285,9 @@ The integration creates 64 configuration entities:
 - Time override periods
 - Quiet hours
 
-#### Input Text (1)
+#### Input Text (2)
 - Price sensor entity ID
+- Solar forecast sensor entity ID
 
 ## Services
 
@@ -519,6 +527,70 @@ automation:
 
 🔔 **Notifications**: Keep notification actions even after adding battery control - they help you monitor that everything is working as expected.
 
+## Solar Forecast Optimization
+
+The integration can optimize charging and discharging decisions based on your solar production forecast. When enabled, it intelligently skips grid charging when solar will fill your battery and prioritizes discharge during periods of low solar production.
+
+### How Solar Optimization Works
+
+**For Charging:**
+- Analyzes solar forecast for each potential charge window
+- Skips cheap grid charging windows when solar production is expected to fill the battery above a configurable threshold
+- Example: If solar forecast predicts enough production to fill 80%+ of your battery capacity, that charge window is skipped
+
+**For Discharging:**
+- Calculates a "solar gap score" for each discharge window candidate
+- Prioritizes discharge during periods of low/no solar production (solar gaps)
+- Uses a combined scoring: 70% price weight + 30% solar gap score
+- Ensures battery discharge covers consumption when solar isn't producing
+
+### Solar Configuration
+
+| Entity | Description | Default |
+|--------|-------------|---------|
+| `switch.cew_solar_optimization_enabled` | Enable/disable solar optimization | Off |
+| `text.cew_solar_forecast_sensor` | Entity ID of your Forecast.Solar sensor | not_configured |
+| `number.cew_battery_usable_capacity` | Your battery's usable capacity in kWh | 10.0 |
+| `number.cew_skip_charge_solar_threshold` | Skip charging when solar fills this % of battery | 80% |
+| `number.cew_consumption_estimate` | Your average household consumption in Watts | 500 W |
+
+### Setup Steps
+
+1. **Install Forecast.Solar integration** in Home Assistant (if not already installed)
+2. **Enable solar optimization**: Turn on `switch.cew_solar_optimization_enabled`
+3. **Configure the sensor**: Enter your Forecast.Solar sensor entity ID in `text.cew_solar_forecast_sensor`
+   - Example: `sensor.energy_production_today` or `sensor.energy_production_today_remaining`
+4. **Set battery capacity**: Adjust `number.cew_battery_usable_capacity` to your actual usable battery capacity
+5. **Set consumption estimate**: Configure `number.cew_consumption_estimate` to your average household load
+6. **Adjust threshold** (optional): Lower `skip_charge_solar_threshold` to be more aggressive about skipping grid charges
+
+### Supported Solar Sensors
+
+The integration reads forecast data from **[Forecast.Solar](https://www.home-assistant.io/integrations/forecast_solar/)** sensors. It expects sensors with these attributes:
+
+| Attribute | Description |
+|-----------|-------------|
+| `wh_period` | Wh production per hour period (preferred) |
+| `watts` | Instantaneous watts forecast |
+| `wh_days` | Daily production totals |
+
+The integration automatically:
+- Parses hourly forecast data
+- Interpolates for 15-minute pricing windows
+- Separates today and tomorrow forecasts
+- Calculates proportional Wh for each price window
+
+### Example Use Cases
+
+**Self-Consumption Optimization:**
+- Solar fills battery during the day for free
+- Skip overnight grid charging on sunny days
+- Discharge during evening peak when solar is gone
+
+**Grid Export Optimization:**
+- Prioritize discharge during high-price solar gaps
+- Maximize revenue by discharging when both price is high AND solar is low
+
 ## Sensor Attributes
 
 ### sensor.cew_today
@@ -538,6 +610,9 @@ automation:
 - `completed_discharge_windows`: Number of completed discharge windows
 - `completed_charge_cost`: Total cost of charging today
 - `completed_discharge_revenue`: Total revenue from discharging today
+- `solar_optimization_active`: Whether solar optimization is currently active
+- `solar_forecast_total_wh`: Total forecasted solar production in Wh
+- `net_import_wh`: Expected net grid import (consumption minus solar)
 
 ## Dashboard Features
 
