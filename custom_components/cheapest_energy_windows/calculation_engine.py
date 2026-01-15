@@ -256,7 +256,8 @@ class WindowCalculationEngine:
             aggressive_windows,
             current_state,
             config,
-            is_tomorrow
+            is_tomorrow,
+            solar_forecast=solar_forecast if solar_optimization_enabled else None
         )
 
         return result
@@ -1176,12 +1177,35 @@ class WindowCalculationEngine:
         aggressive_windows: List[Dict[str, Any]],
         current_state: str,
         config: Dict[str, Any],
-        is_tomorrow: bool
+        is_tomorrow: bool,
+        solar_forecast: Optional[List[Dict[str, Any]]] = None
     ) -> Dict[str, Any]:
         """Build the result dictionary with all attributes."""
         now = dt_util.now()
         current_time = now.replace(second=0, microsecond=0)
         current_price = self._get_current_price(prices, current_time)
+
+        # Calculate solar forecast totals if available
+        solar_optimization_active = config.get("solar_optimization_enabled", False) and solar_forecast is not None
+        solar_forecast_total_wh = 0.0
+        net_import_wh = 0.0
+
+        if solar_forecast:
+            # Sum all Wh from solar forecast for the day
+            solar_forecast_total_wh = sum(entry.get("wh", 0) for entry in solar_forecast)
+
+            # Calculate daily consumption estimate (W * 24 hours)
+            consumption_estimate_w = config.get("consumption_estimate", 500.0)
+            daily_consumption_wh = consumption_estimate_w * 24  # 24 hours
+
+            # Calculate net import: consumption - solar (clamped to 0)
+            net_import_wh = self._calculate_net_import(daily_consumption_wh, solar_forecast_total_wh)
+
+            _LOGGER.debug(
+                f"Solar totals: forecast={solar_forecast_total_wh:.0f}Wh, "
+                f"daily_consumption={daily_consumption_wh:.0f}Wh, "
+                f"net_import={net_import_wh:.0f}Wh"
+            )
 
         # Calculate averages
         cheap_prices = [w["price"] for w in charge_windows]
@@ -1370,6 +1394,10 @@ class WindowCalculationEngine:
             "time_override_active": config.get("time_override_enabled", False),
             "automation_enabled": config.get("automation_enabled", True),
             "calculation_window_enabled": config.get("calculation_window_enabled", False),
+            # Solar forecast attributes
+            "solar_optimization_active": solar_optimization_active,
+            "solar_forecast_total_wh": round(solar_forecast_total_wh, 1),
+            "net_import_wh": round(net_import_wh, 1),
         }
 
         return result
@@ -1411,4 +1439,8 @@ class WindowCalculationEngine:
             "time_override_active": False,
             "automation_enabled": False,
             "calculation_window_enabled": False,
+            # Solar forecast attributes
+            "solar_optimization_active": False,
+            "solar_forecast_total_wh": 0,
+            "net_import_wh": 0,
         }
