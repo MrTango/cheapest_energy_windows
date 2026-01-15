@@ -28,11 +28,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Calculation engine now considers solar production when planning charge/discharge windows
 
-### Fixed
-
-- Pass solar forecast data correctly to calculation engine
-- Unknown action error for rotate_tomorrow_settings service
-- Continue on error in notifications
 
 ## [1.0.0] - 2025-01-01
 
