@@ -3,23 +3,23 @@
   "spec": "004-use-forecast-solar-integration-sensor-to",
   "state": "building",
   "subtasks": {
-    "completed": 3,
+    "completed": 6,
     "total": 15,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Add Solar Configuration Entities",
+    "current": "Implement Solar-Aware Calculation Logic",
     "id": null,
-    "total": 3
+    "total": 4
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 4,
+    "number": 7,
     "started_at": "2026-01-15T15:07:36.889515"
   },
-  "last_update": "2026-01-15T15:12:24.796451"
+  "last_update": "2026-01-15T15:19:03.053092"
 }

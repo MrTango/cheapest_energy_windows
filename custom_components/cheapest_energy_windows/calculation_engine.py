@@ -678,6 +678,196 @@ class WindowCalculationEngine:
         }
         return mode_map.get(mode, STATE_IDLE)
 
+    # Solar forecast helper methods
+
+    def _should_skip_charging(
+        self,
+        solar_wh: float,
+        battery_capacity_wh: float,
+        threshold_pct: float
+    ) -> bool:
+        """Determine if charging should be skipped due to expected solar fill.
+
+        When solar forecast predicts enough production to fill the battery,
+        skip cheap window charging to avoid unnecessary grid import.
+
+        Args:
+            solar_wh: Expected solar production in Wh for the relevant period
+            battery_capacity_wh: Battery usable capacity in Wh
+            threshold_pct: Percentage threshold (0-100) for skipping charge
+
+        Returns:
+            True if charging should be skipped, False otherwise
+        """
+        if battery_capacity_wh <= 0:
+            _LOGGER.debug("Battery capacity is 0 or negative, not skipping charge")
+            return False
+
+        if solar_wh <= 0:
+            _LOGGER.debug("No solar production expected, not skipping charge")
+            return False
+
+        fill_percentage = (solar_wh / battery_capacity_wh) * 100
+        should_skip = fill_percentage >= threshold_pct
+
+        _LOGGER.debug(
+            f"Solar fill check: {solar_wh:.0f}Wh / {battery_capacity_wh:.0f}Wh = "
+            f"{fill_percentage:.1f}% (threshold: {threshold_pct}%) -> "
+            f"{'skip' if should_skip else 'charge'}"
+        )
+
+        return should_skip
+
+    def _calculate_net_import(
+        self,
+        consumption_wh: float,
+        solar_wh: float
+    ) -> float:
+        """Calculate net grid import needed.
+
+        Calculates expected net grid import by comparing solar forecast
+        against estimated consumption.
+
+        Args:
+            consumption_wh: Expected consumption in Wh
+            solar_wh: Expected solar production in Wh
+
+        Returns:
+            Net import in Wh (0 if solar covers consumption)
+        """
+        net_import = max(0.0, consumption_wh - solar_wh)
+        _LOGGER.debug(
+            f"Net import calculation: {consumption_wh:.0f}Wh consumption - "
+            f"{solar_wh:.0f}Wh solar = {net_import:.0f}Wh net import"
+        )
+        return net_import
+
+    def _get_solar_for_window(
+        self,
+        solar_forecast: List[Dict[str, Any]],
+        window_timestamp: datetime,
+        duration_minutes: int
+    ) -> float:
+        """Get solar production forecast for a specific window.
+
+        Matches forecast timestamps to price window timestamps and returns
+        the expected solar production (in Wh) for that window period.
+        Handles timezone alignment and interpolation for 15-min pricing.
+
+        Args:
+            solar_forecast: List of solar forecast entries with timestamp, watts, wh
+            window_timestamp: The start time of the price window
+            duration_minutes: Duration of the window in minutes (15 or 60)
+
+        Returns:
+            Expected solar production in Wh for the window period
+        """
+        if not solar_forecast:
+            return 0.0
+
+        window_end = window_timestamp + timedelta(minutes=duration_minutes)
+        total_wh = 0.0
+
+        # Forecast.Solar typically provides hourly forecasts
+        # For 15-min pricing, we need to interpolate
+        for entry in solar_forecast:
+            forecast_time = entry.get("timestamp")
+            if not forecast_time:
+                continue
+
+            # Convert to local timezone if needed for comparison
+            if forecast_time.tzinfo is None:
+                forecast_time = dt_util.as_local(forecast_time)
+
+            window_start_local = window_timestamp
+            if window_timestamp.tzinfo is None:
+                window_start_local = dt_util.as_local(window_timestamp)
+
+            window_end_local = window_end
+            if window_end.tzinfo is None:
+                window_end_local = dt_util.as_local(window_end)
+
+            # Check if forecast entry falls within or overlaps with window
+            # Forecast.Solar wh_period represents production during that hour
+            # For hourly forecasts, the timestamp is the start of the hour
+            forecast_end = forecast_time + timedelta(hours=1)
+
+            # Calculate overlap between forecast period and window
+            overlap_start = max(forecast_time, window_start_local)
+            overlap_end = min(forecast_end, window_end_local)
+
+            if overlap_start < overlap_end:
+                # There is overlap - calculate proportional Wh
+                overlap_minutes = (overlap_end - overlap_start).total_seconds() / 60
+                forecast_minutes = 60  # Forecast.Solar uses hourly periods
+
+                # Get Wh for this period, proportional to overlap
+                period_wh = entry.get("wh", 0)
+                proportional_wh = (overlap_minutes / forecast_minutes) * period_wh
+                total_wh += proportional_wh
+
+        _LOGGER.debug(
+            f"Solar for window {window_timestamp.strftime('%H:%M')} "
+            f"({duration_minutes}min): {total_wh:.1f}Wh"
+        )
+
+        return total_wh
+
+    def _get_solar_for_period(
+        self,
+        solar_forecast: List[Dict[str, Any]],
+        start_time: datetime,
+        end_time: datetime
+    ) -> float:
+        """Get total solar production forecast for a time period.
+
+        Calculates the sum of solar production between start and end times.
+
+        Args:
+            solar_forecast: List of solar forecast entries with timestamp, watts, wh
+            start_time: Period start time
+            end_time: Period end time
+
+        Returns:
+            Expected solar production in Wh for the period
+        """
+        if not solar_forecast or start_time >= end_time:
+            return 0.0
+
+        total_wh = 0.0
+
+        for entry in solar_forecast:
+            forecast_time = entry.get("timestamp")
+            if not forecast_time:
+                continue
+
+            # Handle timezone-naive timestamps
+            if forecast_time.tzinfo is None:
+                forecast_time = dt_util.as_local(forecast_time)
+
+            start_local = start_time
+            if start_time.tzinfo is None:
+                start_local = dt_util.as_local(start_time)
+
+            end_local = end_time
+            if end_time.tzinfo is None:
+                end_local = dt_util.as_local(end_time)
+
+            # Forecast period is typically one hour
+            forecast_end = forecast_time + timedelta(hours=1)
+
+            # Calculate overlap
+            overlap_start = max(forecast_time, start_local)
+            overlap_end = min(forecast_end, end_local)
+
+            if overlap_start < overlap_end:
+                overlap_minutes = (overlap_end - overlap_start).total_seconds() / 60
+                period_wh = entry.get("wh", 0)
+                proportional_wh = (overlap_minutes / 60) * period_wh
+                total_wh += proportional_wh
+
+        return total_wh
+
     def _calculate_actual_windows(
         self,
         prices: List[Dict[str, Any]],
