@@ -34,6 +34,9 @@ from .const import (
     DEFAULT_BATTERY_MIN_SOC_DISCHARGE,
     DEFAULT_BATTERY_MIN_SOC_AGGRESSIVE_DISCHARGE,
     DEFAULT_PRICE_OVERRIDE_THRESHOLD,
+    DEFAULT_BATTERY_USABLE_CAPACITY,
+    DEFAULT_SKIP_CHARGE_SOLAR_THRESHOLD,
+    DEFAULT_CONSUMPTION_ESTIMATE,
 )
 
 _LOGGER = logging.getLogger(LOGGER_NAME)
@@ -141,6 +144,25 @@ async def async_setup_entry(
             "Battery Min SOC Aggressive Discharge",
             0, 100, DEFAULT_BATTERY_MIN_SOC_AGGRESSIVE_DISCHARGE, 1, "%",
             "mdi:battery-alert", NumberMode.BOX
+        ),
+    ])
+
+    # Solar configuration
+    numbers.extend([
+        CEWNumber(
+            hass, config_entry, "battery_usable_capacity", "Battery Usable Capacity",
+            0, 100, DEFAULT_BATTERY_USABLE_CAPACITY, 0.1, "kWh",
+            "mdi:battery-charging-100", NumberMode.BOX
+        ),
+        CEWNumber(
+            hass, config_entry, "consumption_estimate", "Consumption Estimate",
+            0, 10000, DEFAULT_CONSUMPTION_ESTIMATE, 50, "W",
+            "mdi:home-lightning-bolt-outline", NumberMode.BOX
+        ),
+        CEWNumber(
+            hass, config_entry, "skip_charge_solar_threshold", "Skip Charge Solar Threshold",
+            0, 100, DEFAULT_SKIP_CHARGE_SOLAR_THRESHOLD, 5, "%",
+            "mdi:solar-power", NumberMode.BOX
         ),
     ])
 
