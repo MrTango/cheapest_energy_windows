@@ -204,13 +204,23 @@ class WindowCalculationEngine:
             solar_config=solar_config if solar_optimization_enabled else None
         )
 
+        # Build solar config dict for discharge window calculation
+        # Include consumption_estimate for net import calculation
+        discharge_solar_config = {
+            "solar_optimization_enabled": solar_optimization_enabled,
+            "battery_usable_capacity": config.get("battery_usable_capacity", 10.0),
+            "consumption_estimate": config.get("consumption_estimate", 500.0),
+        } if solar_optimization_enabled else None
+
         discharge_windows = self._find_discharge_windows(
             prices_for_discharge_calc,  # Use filtered prices
             charge_windows,
             num_discharge_windows,
             expensive_percentile,
             min_spread_discharge,
-            min_price_diff
+            min_price_diff,
+            solar_forecast=solar_forecast if solar_optimization_enabled else None,
+            solar_config=discharge_solar_config
         )
 
         aggressive_windows = self._find_aggressive_discharge_windows(
@@ -555,11 +565,42 @@ class WindowCalculationEngine:
         num_windows: int,
         expensive_percentile: float,
         min_spread: float,
-        min_price_diff: float
+        min_price_diff: float,
+        solar_forecast: Optional[List[Dict[str, Any]]] = None,
+        solar_config: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
-        """Find expensive windows for discharging."""
+        """Find expensive windows for discharging.
+
+        When solar optimization is enabled, discharge windows are prioritized
+        during periods of low/zero solar production (solar gaps) to ensure
+        battery discharge covers consumption when solar isn't producing.
+
+        Args:
+            prices: List of processed price data
+            charge_windows: Already selected charge windows to exclude
+            num_windows: Maximum number of discharge windows to select
+            expensive_percentile: Percentile threshold for expensive prices
+            min_spread: Minimum spread percentage required
+            min_price_diff: Minimum price difference required
+            solar_forecast: Optional list of solar forecast entries with timestamp, watts, wh
+            solar_config: Optional dict with solar optimization config:
+                - solar_optimization_enabled: bool
+                - battery_usable_capacity: float (kWh)
+                - consumption_estimate: float (W)
+
+        Returns:
+            List of selected discharge windows
+        """
         if not prices or num_windows <= 0:
             return []
+
+        # Extract solar optimization settings
+        solar_enabled = False
+        consumption_estimate_w = 500.0  # Default consumption estimate in Watts
+
+        if solar_config:
+            solar_enabled = solar_config.get("solar_optimization_enabled", False)
+            consumption_estimate_w = solar_config.get("consumption_estimate", 500.0)
 
         # Exclude charging times
         charge_indices = {w["index"] for w in charge_windows}
@@ -590,8 +631,64 @@ class WindowCalculationEngine:
             if price_data["price"] >= expensive_threshold:
                 candidates.append(price_data)
 
-        # Sort by price (descending for discharge)
-        candidates.sort(key=lambda x: x["price"], reverse=True)
+        # Apply solar gap optimization if enabled
+        if solar_enabled and solar_forecast:
+            # Calculate solar gap score for each candidate
+            # Lower solar production = higher score (more important to discharge)
+            max_price = max(c["price"] for c in candidates) if candidates else 1.0
+            min_price = min(c["price"] for c in candidates) if candidates else 0.0
+            price_range = max_price - min_price if max_price != min_price else 1.0
+
+            for candidate in candidates:
+                # Get solar production for this window
+                window_solar_wh = self._get_solar_for_window(
+                    solar_forecast,
+                    candidate["timestamp"],
+                    candidate["duration"]
+                )
+
+                # Convert consumption estimate to Wh for the window duration
+                duration_hours = candidate["duration"] / 60
+                expected_consumption_wh = consumption_estimate_w * duration_hours
+
+                # Calculate net import for this window (positive = need grid/battery)
+                net_import_wh = self._calculate_net_import(expected_consumption_wh, window_solar_wh)
+
+                # Calculate solar gap score (0-1 range)
+                # High score = low solar (good for discharge)
+                # Score is based on how much of consumption isn't covered by solar
+                if expected_consumption_wh > 0:
+                    solar_gap_score = min(1.0, net_import_wh / expected_consumption_wh)
+                else:
+                    solar_gap_score = 0.0 if window_solar_wh > 0 else 1.0
+
+                # Normalize price score (0-1 range)
+                price_score = (candidate["price"] - min_price) / price_range
+
+                # Combined score: weight price heavily but boost solar gaps
+                # Price is primary factor (70%), solar gap is secondary (30%)
+                combined_score = (price_score * 0.7) + (solar_gap_score * 0.3)
+
+                candidate["solar_wh"] = window_solar_wh
+                candidate["solar_gap_score"] = solar_gap_score
+                candidate["combined_score"] = combined_score
+
+                _LOGGER.debug(
+                    f"Discharge candidate {candidate['timestamp'].strftime('%H:%M')}: "
+                    f"price={candidate['price']:.4f}, solar={window_solar_wh:.0f}Wh, "
+                    f"gap_score={solar_gap_score:.2f}, combined={combined_score:.2f}"
+                )
+
+            # Sort by combined score (descending) instead of just price
+            candidates.sort(key=lambda x: x.get("combined_score", x["price"]), reverse=True)
+
+            _LOGGER.debug(
+                f"Solar gap optimization: sorted {len(candidates)} discharge candidates "
+                "by combined price+solar score"
+            )
+        else:
+            # Sort by price (descending for discharge) - original behavior
+            candidates.sort(key=lambda x: x["price"], reverse=True)
 
         # Progressive selection with spread check
         selected = []
@@ -615,6 +712,13 @@ class WindowCalculationEngine:
 
                 if spread_pct >= min_spread and price_diff >= min_price_diff:
                     selected.append(candidate)
+
+        if solar_enabled and solar_forecast:
+            solar_gap_windows = sum(1 for w in selected if w.get("solar_gap_score", 0) > 0.5)
+            _LOGGER.debug(
+                f"Solar gap optimization: selected {len(selected)} discharge windows, "
+                f"{solar_gap_windows} during solar gaps"
+            )
 
         return selected
 
