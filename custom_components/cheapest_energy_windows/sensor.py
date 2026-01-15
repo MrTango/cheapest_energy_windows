@@ -155,6 +155,9 @@ from .const import (
     ATTR_CURRENT_PRICE,
     ATTR_PRICE_OVERRIDE_ACTIVE,
     ATTR_TIME_OVERRIDE_ACTIVE,
+    ATTR_SOLAR_OPTIMIZATION_ACTIVE,
+    ATTR_SOLAR_FORECAST_TOTAL_WH,
+    ATTR_NET_IMPORT_WH,
     TIBBER_SERVICE_DOMAIN,
     TIBBER_SERVICE_GET_PRICES,
     TIBBER_TOMORROW_END_HOUR,
@@ -317,6 +320,12 @@ class CEWTodaySensor(CEWBaseSensor):
         scheduled_update = self.coordinator.data.get("scheduled_update", False)
 
         config = self.coordinator.data.get("config", {})
+        # FIX: Merge solar forecast data into config for calculation engine
+        # The coordinator stores solar data at root level, but calculation engine expects it in config
+        config["solar_forecast"] = self.coordinator.data.get("solar_forecast", [])
+        config["solar_forecast_today"] = self.coordinator.data.get("solar_forecast_today", [])
+        config["solar_forecast_tomorrow"] = self.coordinator.data.get("solar_forecast_tomorrow", [])
+
         current_automation_enabled = config.get("automation_enabled", True)
 
         # Check if calculation-affecting config changed
@@ -461,6 +470,10 @@ class CEWTodaySensor(CEWBaseSensor):
             ATTR_CURRENT_PRICE: result.get("current_price", 0.0),
             ATTR_PRICE_OVERRIDE_ACTIVE: result.get("price_override_active", False),
             ATTR_TIME_OVERRIDE_ACTIVE: result.get("time_override_active", False),
+            # Solar forecast attributes
+            ATTR_SOLAR_OPTIMIZATION_ACTIVE: result.get("solar_optimization_active", False),
+            ATTR_SOLAR_FORECAST_TOTAL_WH: result.get("solar_forecast_total_wh", 0.0),
+            ATTR_NET_IMPORT_WH: result.get("net_import_wh", 0.0),
             "last_config_update": last_config_update.isoformat() if last_config_update else None,
         }
 
@@ -498,6 +511,12 @@ class CEWTomorrowSensor(CEWBaseSensor):
         scheduled_update = self.coordinator.data.get("scheduled_update", False)
 
         config = self.coordinator.data.get("config", {})
+        # FIX: Merge solar forecast data into config for calculation engine
+        # For tomorrow sensor, use tomorrow's solar forecast as the primary solar_forecast
+        config["solar_forecast"] = self.coordinator.data.get("solar_forecast_tomorrow", [])
+        config["solar_forecast_today"] = self.coordinator.data.get("solar_forecast_today", [])
+        config["solar_forecast_tomorrow"] = self.coordinator.data.get("solar_forecast_tomorrow", [])
+
         current_automation_enabled = config.get("automation_enabled", True)
 
         # Check if calculation-affecting config changed
@@ -592,6 +611,10 @@ class CEWTomorrowSensor(CEWBaseSensor):
             ATTR_AVG_CHEAP_PRICE: result.get("avg_cheap_price", 0.0),
             ATTR_AVG_EXPENSIVE_PRICE: result.get("avg_expensive_price", 0.0),
             ATTR_PLANNED_TOTAL_COST: result.get("planned_total_cost", 0.0),
+            # Solar forecast attributes
+            ATTR_SOLAR_OPTIMIZATION_ACTIVE: result.get("solar_optimization_active", False),
+            ATTR_SOLAR_FORECAST_TOTAL_WH: result.get("solar_forecast_total_wh", 0.0),
+            ATTR_NET_IMPORT_WH: result.get("net_import_wh", 0.0),
             "last_config_update": last_config_update.isoformat() if last_config_update else None,
         }
 

@@ -49,6 +49,7 @@ async def async_setup_entry(
         ("notify_idle", "Notify Idle", True, "mdi:battery"),
         ("notify_off", "Notify Off", True, "mdi:battery-off"),
         ("battery_use_soc_safety", "Battery Use SOC Safety", False, "mdi:shield-battery"),
+        ("solar_optimization_enabled", "Solar Optimization Enabled", False, "mdi:solar-power"),
     ]
 
     for key, name, default, icon in switch_configs:
