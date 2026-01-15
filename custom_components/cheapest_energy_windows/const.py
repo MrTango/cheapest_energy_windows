@@ -139,6 +139,11 @@ ATTR_CURRENT_PRICE: Final = "current_price"
 ATTR_PRICE_OVERRIDE_ACTIVE: Final = "price_override_active"
 ATTR_TIME_OVERRIDE_ACTIVE: Final = "time_override_active"
 
+# Solar forecast attributes
+ATTR_SOLAR_OPTIMIZATION_ACTIVE: Final = "solar_optimization_active"
+ATTR_SOLAR_FORECAST_TOTAL_WH: Final = "solar_forecast_total_wh"
+ATTR_NET_IMPORT_WH: Final = "net_import_wh"
+
 # Service names
 SERVICE_ROTATE_SETTINGS: Final = "rotate_tomorrow_settings"
 
