@@ -197,6 +197,15 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             self._persistent_state["previous_raw_tomorrow"] = self._previous_raw_tomorrow
             self._persistent_state["previous_config_hash"] = current_config_hash
 
+            # Get solar forecast data if solar optimization is enabled
+            solar_optimization_enabled = config.get("solar_optimization_enabled", False)
+            if solar_optimization_enabled:
+                solar_data = await self._get_solar_forecast_data()
+                _LOGGER.debug(f"Solar optimization enabled, sensor available: {solar_data.get('sensor_available', False)}")
+            else:
+                solar_data = self._empty_solar_data()
+                _LOGGER.debug("Solar optimization disabled, using empty solar data")
+
             # Process the data with metadata
             data = {
                 "price_sensor": price_sensor,
@@ -214,6 +223,14 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 "last_config_update": self._last_config_update,
                 # Tibber action mode flag - indicates if prices are from tibber.get_prices action
                 "tibber_action_mode": tibber_action_mode,
+                # Solar forecast data
+                "solar_forecast": solar_data.get("solar_forecast", []),
+                "solar_forecast_today": solar_data.get("solar_forecast_today", []),
+                "solar_forecast_tomorrow": solar_data.get("solar_forecast_tomorrow", []),
+                "solar_total_today_wh": solar_data.get("total_today_wh", 0),
+                "solar_total_tomorrow_wh": solar_data.get("total_tomorrow_wh", 0),
+                "solar_sensor_available": solar_data.get("sensor_available", False),
+                "solar_optimization_enabled": solar_optimization_enabled,
             }
 
             _LOGGER.debug(f"Data structure keys: {list(data.keys())}")
@@ -326,6 +343,13 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "time_override_mode": options.get("time_override_mode", "charge"),
             "time_override_mode_tomorrow": options.get("time_override_mode_tomorrow", "charge"),
 
+            # Solar optimization configuration
+            "solar_optimization_enabled": bool(options.get("solar_optimization_enabled", DEFAULT_SOLAR_OPTIMIZATION_ENABLED)),
+            "solar_forecast_sensor": options.get("solar_forecast_sensor", DEFAULT_SOLAR_FORECAST_SENSOR),
+            "battery_usable_capacity": float(options.get("battery_usable_capacity", 10.0)),
+            "skip_charge_solar_threshold": float(options.get("skip_charge_solar_threshold", 80)),
+            "consumption_estimate": float(options.get("consumption_estimate", 500)),
+
             # Time values
             "time_override_start": options.get("time_override_start", DEFAULT_TIME_OVERRIDE_START),
             "time_override_end": options.get("time_override_end", DEFAULT_TIME_OVERRIDE_END),
@@ -368,6 +392,14 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "error": reason,
             # Tibber action mode - False when empty/error data
             "tibber_action_mode": False,
+            # Solar forecast data - empty when price sensor not available
+            "solar_forecast": [],
+            "solar_forecast_today": [],
+            "solar_forecast_tomorrow": [],
+            "solar_total_today_wh": 0,
+            "solar_total_tomorrow_wh": 0,
+            "solar_sensor_available": False,
+            "solar_optimization_enabled": config.get("solar_optimization_enabled", False),
         }
 
     async def _get_solar_forecast_data(self) -> Dict[str, Any]:
