@@ -177,14 +177,40 @@ class WindowCalculationEngine:
                     prices_for_discharge_calc = discharge_override_prices
                     _LOGGER.debug(f"Discharge mode: {len(charge_filtered)} prices for charging, {len(discharge_override_prices)} for discharge")
 
+        # Extract solar optimization configuration
+        solar_optimization_enabled = config.get("solar_optimization_enabled", False)
+        solar_forecast = config.get("solar_forecast", []) if solar_optimization_enabled else []
+
+        # Build solar config dict for charge window calculation
+        solar_config = {
+            "solar_optimization_enabled": solar_optimization_enabled,
+            "battery_usable_capacity": config.get("battery_usable_capacity", 10.0),
+            "skip_charge_solar_threshold": config.get("skip_charge_solar_threshold", 80),
+        }
+
+        _LOGGER.debug(
+            f"Solar optimization: enabled={solar_optimization_enabled}, "
+            f"forecast_entries={len(solar_forecast) if solar_forecast else 0}"
+        )
+
         # Find windows using the pre-filtered prices
         charge_windows = self._find_charge_windows(
             prices_for_charge_calc,  # Use filtered prices
             num_charge_windows,
             cheap_percentile,
             min_spread,
-            min_price_diff
+            min_price_diff,
+            solar_forecast=solar_forecast if solar_optimization_enabled else None,
+            solar_config=solar_config if solar_optimization_enabled else None
         )
+
+        # Build solar config dict for discharge window calculation
+        # Include consumption_estimate for net import calculation
+        discharge_solar_config = {
+            "solar_optimization_enabled": solar_optimization_enabled,
+            "battery_usable_capacity": config.get("battery_usable_capacity", 10.0),
+            "consumption_estimate": config.get("consumption_estimate", 500.0),
+        } if solar_optimization_enabled else None
 
         discharge_windows = self._find_discharge_windows(
             prices_for_discharge_calc,  # Use filtered prices
@@ -192,7 +218,9 @@ class WindowCalculationEngine:
             num_discharge_windows,
             expensive_percentile,
             min_spread_discharge,
-            min_price_diff
+            min_price_diff,
+            solar_forecast=solar_forecast if solar_optimization_enabled else None,
+            solar_config=discharge_solar_config
         )
 
         aggressive_windows = self._find_aggressive_discharge_windows(
@@ -228,7 +256,8 @@ class WindowCalculationEngine:
             aggressive_windows,
             current_state,
             config,
-            is_tomorrow
+            is_tomorrow,
+            solar_forecast=solar_forecast if solar_optimization_enabled else None
         )
 
         return result
@@ -422,11 +451,43 @@ class WindowCalculationEngine:
         num_windows: int,
         cheap_percentile: float,
         min_spread: float,
-        min_price_diff: float
+        min_price_diff: float,
+        solar_forecast: Optional[List[Dict[str, Any]]] = None,
+        solar_config: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
-        """Find cheapest windows for charging."""
+        """Find cheapest windows for charging.
+
+        When solar optimization is enabled, windows may be skipped if solar forecast
+        indicates sufficient production to fill the battery during that period.
+
+        Args:
+            prices: List of processed price data
+            num_windows: Maximum number of charge windows to select
+            cheap_percentile: Percentile threshold for cheap prices
+            min_spread: Minimum spread percentage required
+            min_price_diff: Minimum price difference required
+            solar_forecast: Optional list of solar forecast entries with timestamp, watts, wh
+            solar_config: Optional dict with solar optimization config:
+                - solar_optimization_enabled: bool
+                - battery_usable_capacity: float (kWh)
+                - skip_charge_solar_threshold: float (percentage)
+
+        Returns:
+            List of selected charge windows
+        """
         if not prices or num_windows <= 0:
             return []
+
+        # Extract solar optimization settings
+        solar_enabled = False
+        battery_capacity_wh = 0.0
+        skip_threshold = 80.0
+
+        if solar_config:
+            solar_enabled = solar_config.get("solar_optimization_enabled", False)
+            # Convert kWh to Wh for internal calculations
+            battery_capacity_wh = solar_config.get("battery_usable_capacity", 10.0) * 1000
+            skip_threshold = solar_config.get("skip_charge_solar_threshold", 80)
 
         # Convert to numpy array for efficient operations
         price_array = np.array([p["price"] for p in prices])
@@ -450,11 +511,34 @@ class WindowCalculationEngine:
 
         # Progressive selection with spread check
         selected = []
+        skipped_due_to_solar = 0
         expensive_avg = np.mean(price_array[price_array > np.percentile(price_array, 100 - cheap_percentile)])
 
         for candidate in candidates:
             if len(selected) >= num_windows:
                 break
+
+            # Check solar optimization - skip charging if solar will fill the battery
+            if solar_enabled and solar_forecast and battery_capacity_wh > 0:
+                # Get solar production expected for this window
+                window_solar_wh = self._get_solar_for_window(
+                    solar_forecast,
+                    candidate["timestamp"],
+                    candidate["duration"]
+                )
+
+                # Check if we should skip this window due to solar
+                if self._should_skip_charging(
+                    window_solar_wh,
+                    battery_capacity_wh,
+                    skip_threshold
+                ):
+                    _LOGGER.debug(
+                        f"Skipping charge window at {candidate['timestamp'].strftime('%H:%M')} "
+                        f"due to solar forecast ({window_solar_wh:.0f}Wh expected)"
+                    )
+                    skipped_due_to_solar += 1
+                    continue
 
             # Test spread with this window
             test_prices = [s["price"] for s in selected] + [candidate["price"]]
@@ -468,6 +552,11 @@ class WindowCalculationEngine:
                 if spread_pct >= min_spread and price_diff >= min_price_diff:
                     selected.append(candidate)
 
+        if skipped_due_to_solar > 0:
+            _LOGGER.debug(
+                f"Solar optimization: skipped {skipped_due_to_solar} charge windows due to solar forecast"
+            )
+
         return selected
 
     def _find_discharge_windows(
@@ -477,11 +566,42 @@ class WindowCalculationEngine:
         num_windows: int,
         expensive_percentile: float,
         min_spread: float,
-        min_price_diff: float
+        min_price_diff: float,
+        solar_forecast: Optional[List[Dict[str, Any]]] = None,
+        solar_config: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
-        """Find expensive windows for discharging."""
+        """Find expensive windows for discharging.
+
+        When solar optimization is enabled, discharge windows are prioritized
+        during periods of low/zero solar production (solar gaps) to ensure
+        battery discharge covers consumption when solar isn't producing.
+
+        Args:
+            prices: List of processed price data
+            charge_windows: Already selected charge windows to exclude
+            num_windows: Maximum number of discharge windows to select
+            expensive_percentile: Percentile threshold for expensive prices
+            min_spread: Minimum spread percentage required
+            min_price_diff: Minimum price difference required
+            solar_forecast: Optional list of solar forecast entries with timestamp, watts, wh
+            solar_config: Optional dict with solar optimization config:
+                - solar_optimization_enabled: bool
+                - battery_usable_capacity: float (kWh)
+                - consumption_estimate: float (W)
+
+        Returns:
+            List of selected discharge windows
+        """
         if not prices or num_windows <= 0:
             return []
+
+        # Extract solar optimization settings
+        solar_enabled = False
+        consumption_estimate_w = 500.0  # Default consumption estimate in Watts
+
+        if solar_config:
+            solar_enabled = solar_config.get("solar_optimization_enabled", False)
+            consumption_estimate_w = solar_config.get("consumption_estimate", 500.0)
 
         # Exclude charging times
         charge_indices = {w["index"] for w in charge_windows}
@@ -512,8 +632,64 @@ class WindowCalculationEngine:
             if price_data["price"] >= expensive_threshold:
                 candidates.append(price_data)
 
-        # Sort by price (descending for discharge)
-        candidates.sort(key=lambda x: x["price"], reverse=True)
+        # Apply solar gap optimization if enabled
+        if solar_enabled and solar_forecast:
+            # Calculate solar gap score for each candidate
+            # Lower solar production = higher score (more important to discharge)
+            max_price = max(c["price"] for c in candidates) if candidates else 1.0
+            min_price = min(c["price"] for c in candidates) if candidates else 0.0
+            price_range = max_price - min_price if max_price != min_price else 1.0
+
+            for candidate in candidates:
+                # Get solar production for this window
+                window_solar_wh = self._get_solar_for_window(
+                    solar_forecast,
+                    candidate["timestamp"],
+                    candidate["duration"]
+                )
+
+                # Convert consumption estimate to Wh for the window duration
+                duration_hours = candidate["duration"] / 60
+                expected_consumption_wh = consumption_estimate_w * duration_hours
+
+                # Calculate net import for this window (positive = need grid/battery)
+                net_import_wh = self._calculate_net_import(expected_consumption_wh, window_solar_wh)
+
+                # Calculate solar gap score (0-1 range)
+                # High score = low solar (good for discharge)
+                # Score is based on how much of consumption isn't covered by solar
+                if expected_consumption_wh > 0:
+                    solar_gap_score = min(1.0, net_import_wh / expected_consumption_wh)
+                else:
+                    solar_gap_score = 0.0 if window_solar_wh > 0 else 1.0
+
+                # Normalize price score (0-1 range)
+                price_score = (candidate["price"] - min_price) / price_range
+
+                # Combined score: weight price heavily but boost solar gaps
+                # Price is primary factor (70%), solar gap is secondary (30%)
+                combined_score = (price_score * 0.7) + (solar_gap_score * 0.3)
+
+                candidate["solar_wh"] = window_solar_wh
+                candidate["solar_gap_score"] = solar_gap_score
+                candidate["combined_score"] = combined_score
+
+                _LOGGER.debug(
+                    f"Discharge candidate {candidate['timestamp'].strftime('%H:%M')}: "
+                    f"price={candidate['price']:.4f}, solar={window_solar_wh:.0f}Wh, "
+                    f"gap_score={solar_gap_score:.2f}, combined={combined_score:.2f}"
+                )
+
+            # Sort by combined score (descending) instead of just price
+            candidates.sort(key=lambda x: x.get("combined_score", x["price"]), reverse=True)
+
+            _LOGGER.debug(
+                f"Solar gap optimization: sorted {len(candidates)} discharge candidates "
+                "by combined price+solar score"
+            )
+        else:
+            # Sort by price (descending for discharge) - original behavior
+            candidates.sort(key=lambda x: x["price"], reverse=True)
 
         # Progressive selection with spread check
         selected = []
@@ -537,6 +713,13 @@ class WindowCalculationEngine:
 
                 if spread_pct >= min_spread and price_diff >= min_price_diff:
                     selected.append(candidate)
+
+        if solar_enabled and solar_forecast:
+            solar_gap_windows = sum(1 for w in selected if w.get("solar_gap_score", 0) > 0.5)
+            _LOGGER.debug(
+                f"Solar gap optimization: selected {len(selected)} discharge windows, "
+                f"{solar_gap_windows} during solar gaps"
+            )
 
         return selected
 
@@ -678,6 +861,196 @@ class WindowCalculationEngine:
         }
         return mode_map.get(mode, STATE_IDLE)
 
+    # Solar forecast helper methods
+
+    def _should_skip_charging(
+        self,
+        solar_wh: float,
+        battery_capacity_wh: float,
+        threshold_pct: float
+    ) -> bool:
+        """Determine if charging should be skipped due to expected solar fill.
+
+        When solar forecast predicts enough production to fill the battery,
+        skip cheap window charging to avoid unnecessary grid import.
+
+        Args:
+            solar_wh: Expected solar production in Wh for the relevant period
+            battery_capacity_wh: Battery usable capacity in Wh
+            threshold_pct: Percentage threshold (0-100) for skipping charge
+
+        Returns:
+            True if charging should be skipped, False otherwise
+        """
+        if battery_capacity_wh <= 0:
+            _LOGGER.debug("Battery capacity is 0 or negative, not skipping charge")
+            return False
+
+        if solar_wh <= 0:
+            _LOGGER.debug("No solar production expected, not skipping charge")
+            return False
+
+        fill_percentage = (solar_wh / battery_capacity_wh) * 100
+        should_skip = fill_percentage >= threshold_pct
+
+        _LOGGER.debug(
+            f"Solar fill check: {solar_wh:.0f}Wh / {battery_capacity_wh:.0f}Wh = "
+            f"{fill_percentage:.1f}% (threshold: {threshold_pct}%) -> "
+            f"{'skip' if should_skip else 'charge'}"
+        )
+
+        return should_skip
+
+    def _calculate_net_import(
+        self,
+        consumption_wh: float,
+        solar_wh: float
+    ) -> float:
+        """Calculate net grid import needed.
+
+        Calculates expected net grid import by comparing solar forecast
+        against estimated consumption.
+
+        Args:
+            consumption_wh: Expected consumption in Wh
+            solar_wh: Expected solar production in Wh
+
+        Returns:
+            Net import in Wh (0 if solar covers consumption)
+        """
+        net_import = max(0.0, consumption_wh - solar_wh)
+        _LOGGER.debug(
+            f"Net import calculation: {consumption_wh:.0f}Wh consumption - "
+            f"{solar_wh:.0f}Wh solar = {net_import:.0f}Wh net import"
+        )
+        return net_import
+
+    def _get_solar_for_window(
+        self,
+        solar_forecast: List[Dict[str, Any]],
+        window_timestamp: datetime,
+        duration_minutes: int
+    ) -> float:
+        """Get solar production forecast for a specific window.
+
+        Matches forecast timestamps to price window timestamps and returns
+        the expected solar production (in Wh) for that window period.
+        Handles timezone alignment and interpolation for 15-min pricing.
+
+        Args:
+            solar_forecast: List of solar forecast entries with timestamp, watts, wh
+            window_timestamp: The start time of the price window
+            duration_minutes: Duration of the window in minutes (15 or 60)
+
+        Returns:
+            Expected solar production in Wh for the window period
+        """
+        if not solar_forecast:
+            return 0.0
+
+        window_end = window_timestamp + timedelta(minutes=duration_minutes)
+        total_wh = 0.0
+
+        # Forecast.Solar typically provides hourly forecasts
+        # For 15-min pricing, we need to interpolate
+        for entry in solar_forecast:
+            forecast_time = entry.get("timestamp")
+            if not forecast_time:
+                continue
+
+            # Convert to local timezone if needed for comparison
+            if forecast_time.tzinfo is None:
+                forecast_time = dt_util.as_local(forecast_time)
+
+            window_start_local = window_timestamp
+            if window_timestamp.tzinfo is None:
+                window_start_local = dt_util.as_local(window_timestamp)
+
+            window_end_local = window_end
+            if window_end.tzinfo is None:
+                window_end_local = dt_util.as_local(window_end)
+
+            # Check if forecast entry falls within or overlaps with window
+            # Forecast.Solar wh_period represents production during that hour
+            # For hourly forecasts, the timestamp is the start of the hour
+            forecast_end = forecast_time + timedelta(hours=1)
+
+            # Calculate overlap between forecast period and window
+            overlap_start = max(forecast_time, window_start_local)
+            overlap_end = min(forecast_end, window_end_local)
+
+            if overlap_start < overlap_end:
+                # There is overlap - calculate proportional Wh
+                overlap_minutes = (overlap_end - overlap_start).total_seconds() / 60
+                forecast_minutes = 60  # Forecast.Solar uses hourly periods
+
+                # Get Wh for this period, proportional to overlap
+                period_wh = entry.get("wh", 0)
+                proportional_wh = (overlap_minutes / forecast_minutes) * period_wh
+                total_wh += proportional_wh
+
+        _LOGGER.debug(
+            f"Solar for window {window_timestamp.strftime('%H:%M')} "
+            f"({duration_minutes}min): {total_wh:.1f}Wh"
+        )
+
+        return total_wh
+
+    def _get_solar_for_period(
+        self,
+        solar_forecast: List[Dict[str, Any]],
+        start_time: datetime,
+        end_time: datetime
+    ) -> float:
+        """Get total solar production forecast for a time period.
+
+        Calculates the sum of solar production between start and end times.
+
+        Args:
+            solar_forecast: List of solar forecast entries with timestamp, watts, wh
+            start_time: Period start time
+            end_time: Period end time
+
+        Returns:
+            Expected solar production in Wh for the period
+        """
+        if not solar_forecast or start_time >= end_time:
+            return 0.0
+
+        total_wh = 0.0
+
+        for entry in solar_forecast:
+            forecast_time = entry.get("timestamp")
+            if not forecast_time:
+                continue
+
+            # Handle timezone-naive timestamps
+            if forecast_time.tzinfo is None:
+                forecast_time = dt_util.as_local(forecast_time)
+
+            start_local = start_time
+            if start_time.tzinfo is None:
+                start_local = dt_util.as_local(start_time)
+
+            end_local = end_time
+            if end_time.tzinfo is None:
+                end_local = dt_util.as_local(end_time)
+
+            # Forecast period is typically one hour
+            forecast_end = forecast_time + timedelta(hours=1)
+
+            # Calculate overlap
+            overlap_start = max(forecast_time, start_local)
+            overlap_end = min(forecast_end, end_local)
+
+            if overlap_start < overlap_end:
+                overlap_minutes = (overlap_end - overlap_start).total_seconds() / 60
+                period_wh = entry.get("wh", 0)
+                proportional_wh = (overlap_minutes / 60) * period_wh
+                total_wh += proportional_wh
+
+        return total_wh
+
     def _calculate_actual_windows(
         self,
         prices: List[Dict[str, Any]],
@@ -804,12 +1177,35 @@ class WindowCalculationEngine:
         aggressive_windows: List[Dict[str, Any]],
         current_state: str,
         config: Dict[str, Any],
-        is_tomorrow: bool
+        is_tomorrow: bool,
+        solar_forecast: Optional[List[Dict[str, Any]]] = None
     ) -> Dict[str, Any]:
         """Build the result dictionary with all attributes."""
         now = dt_util.now()
         current_time = now.replace(second=0, microsecond=0)
         current_price = self._get_current_price(prices, current_time)
+
+        # Calculate solar forecast totals if available
+        solar_optimization_active = config.get("solar_optimization_enabled", False) and solar_forecast is not None
+        solar_forecast_total_wh = 0.0
+        net_import_wh = 0.0
+
+        if solar_forecast:
+            # Sum all Wh from solar forecast for the day
+            solar_forecast_total_wh = sum(entry.get("wh", 0) for entry in solar_forecast)
+
+            # Calculate daily consumption estimate (W * 24 hours)
+            consumption_estimate_w = config.get("consumption_estimate", 500.0)
+            daily_consumption_wh = consumption_estimate_w * 24  # 24 hours
+
+            # Calculate net import: consumption - solar (clamped to 0)
+            net_import_wh = self._calculate_net_import(daily_consumption_wh, solar_forecast_total_wh)
+
+            _LOGGER.debug(
+                f"Solar totals: forecast={solar_forecast_total_wh:.0f}Wh, "
+                f"daily_consumption={daily_consumption_wh:.0f}Wh, "
+                f"net_import={net_import_wh:.0f}Wh"
+            )
 
         # Calculate averages
         cheap_prices = [w["price"] for w in charge_windows]
@@ -998,6 +1394,10 @@ class WindowCalculationEngine:
             "time_override_active": config.get("time_override_enabled", False),
             "automation_enabled": config.get("automation_enabled", True),
             "calculation_window_enabled": config.get("calculation_window_enabled", False),
+            # Solar forecast attributes
+            "solar_optimization_active": solar_optimization_active,
+            "solar_forecast_total_wh": round(solar_forecast_total_wh, 1),
+            "net_import_wh": round(net_import_wh, 1),
         }
 
         return result
@@ -1039,4 +1439,8 @@ class WindowCalculationEngine:
             "time_override_active": False,
             "automation_enabled": False,
             "calculation_window_enabled": False,
+            # Solar forecast attributes
+            "solar_optimization_active": False,
+            "solar_forecast_total_wh": 0,
+            "net_import_wh": 0,
         }

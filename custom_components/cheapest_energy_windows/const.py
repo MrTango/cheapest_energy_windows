@@ -27,6 +27,13 @@ CONF_BASE_USAGE_IDLE_STRATEGY: Final = "base_usage_idle_strategy"
 CONF_BASE_USAGE_DISCHARGE_STRATEGY: Final = "base_usage_discharge_strategy"
 CONF_BASE_USAGE_AGGRESSIVE_STRATEGY: Final = "base_usage_aggressive_strategy"
 
+# Solar forecast configuration keys
+CONF_SOLAR_FORECAST_SENSOR: Final = "solar_forecast_sensor"
+CONF_SOLAR_OPTIMIZATION_ENABLED: Final = "solar_optimization_enabled"
+CONF_BATTERY_USABLE_CAPACITY: Final = "battery_usable_capacity"
+CONF_SKIP_CHARGE_SOLAR_THRESHOLD: Final = "skip_charge_solar_threshold"
+CONF_CONSUMPTION_ESTIMATE: Final = "consumption_estimate"
+
 # Default values
 DEFAULT_PRICE_SENSOR: Final = ""
 DEFAULT_VAT_RATE: Final = 0.21
@@ -58,6 +65,13 @@ DEFAULT_BASE_USAGE_CHARGE_STRATEGY: Final = "grid_covers_both"
 DEFAULT_BASE_USAGE_IDLE_STRATEGY: Final = "battery_covers"
 DEFAULT_BASE_USAGE_DISCHARGE_STRATEGY: Final = "subtract_base"
 DEFAULT_BASE_USAGE_AGGRESSIVE_STRATEGY: Final = "same_as_discharge"
+
+# Solar forecast default values
+DEFAULT_SOLAR_FORECAST_SENSOR: Final = ""
+DEFAULT_SOLAR_OPTIMIZATION_ENABLED: Final = False
+DEFAULT_BATTERY_USABLE_CAPACITY: Final = 10.0
+DEFAULT_SKIP_CHARGE_SOLAR_THRESHOLD: Final = 80
+DEFAULT_CONSUMPTION_ESTIMATE: Final = 500
 
 # Base usage strategy options
 BASE_USAGE_CHARGE_OPTIONS: Final = ["grid_covers_both", "battery_covers_base"]
@@ -124,6 +138,11 @@ ATTR_AVG_EXPENSIVE_PRICE: Final = "avg_expensive_price"
 ATTR_CURRENT_PRICE: Final = "current_price"
 ATTR_PRICE_OVERRIDE_ACTIVE: Final = "price_override_active"
 ATTR_TIME_OVERRIDE_ACTIVE: Final = "time_override_active"
+
+# Solar forecast attributes
+ATTR_SOLAR_OPTIMIZATION_ACTIVE: Final = "solar_optimization_active"
+ATTR_SOLAR_FORECAST_TOTAL_WH: Final = "solar_forecast_total_wh"
+ATTR_NET_IMPORT_WH: Final = "net_import_wh"
 
 # Service names
 SERVICE_ROTATE_SETTINGS: Final = "rotate_tomorrow_settings"
@@ -206,6 +225,13 @@ CALCULATION_AFFECTING_KEYS: Final = {
 
     # Window duration
     "pricing_window_duration",
+
+    # Solar forecast optimization
+    "solar_optimization_enabled",
+    "solar_forecast_sensor",
+    "battery_usable_capacity",
+    "skip_charge_solar_threshold",
+    "consumption_estimate",
 }
 
 # Configuration keys that DON'T affect calculation (UI/notification settings)
