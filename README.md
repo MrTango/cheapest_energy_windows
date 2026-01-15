@@ -124,7 +124,7 @@ The integration automatically normalizes different sensor formats through a prox
 
 ### Manual Installation
 
-1. Copy the `custom_components/cheapest_energy_windows` folder to your Home Assistant `custom_components` directory
+1. Copy the `custom_components/cheapest_energy_windows_ng` folder to your Home Assistant `custom_components` directory
 2. Restart Home Assistant
 3. Go to Settings > Devices & Services
 4. Click "Add Integration"

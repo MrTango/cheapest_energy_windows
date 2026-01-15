@@ -4,19 +4,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-A Home Assistant custom component (`cheapest_energy_windows_tibber`) for battery energy management. It identifies optimal charging windows (cheap electricity) and discharging windows (expensive electricity) based on dynamic pricing from multiple sources.
+A Home Assistant custom component (`cheapest_energy_windows_ng`) for battery energy management. It identifies optimal charging windows (cheap electricity) and discharging windows (expensive electricity) based on dynamic pricing from multiple sources.
 
 ## Development Commands
 
 ```bash
 # Copy to Home Assistant custom_components for testing
-cp -r custom_components/cheapest_energy_windows /path/to/homeassistant/config/custom_components/
+cp -r custom_components/cheapest_energy_windows_ng /path/to/homeassistant/config/custom_components/
 
 # View Home Assistant logs for this integration
 grep -i "cheapest_energy_windows" /path/to/homeassistant/config/home-assistant.log
 
 # Validate manifest.json
-python -c "import json; json.load(open('custom_components/cheapest_energy_windows/manifest.json'))"
+python -c "import json; json.load(open('custom_components/cheapest_energy_windows_ng/manifest.json'))"
 ```
 
 ## Requirements

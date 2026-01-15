@@ -497,3 +497,15 @@ If battery empties too fast:
 | Min Price Diff | 0.05 | 0.03 | 0.02 |
 | Expensive Percentile | 20% | 25% | 30% |
 | Min Spread Discharge | 30% | 20% | 15% |
+
+### Quick Reference Explanations
+
+**Cheap Percentile:** Determines which price windows qualify as "cheap" for charging. A value of 25% means only windows with prices in the bottom 25% of all prices are considered candidates. Lower values are stricter (fewer but cheaper windows), higher values are more flexible (more candidates but potentially higher prices).
+
+**Expensive Percentile:** Determines which price windows qualify as "expensive" for discharging. A value of 25% means only windows with prices in the top 25% are considered. Lower values target only the highest peaks, higher values capture more discharge opportunities.
+
+**Min Spread:** Minimum percentage difference between cheap and expensive average prices before charging is enabled. Must exceed battery round-trip efficiency losses (~10%) to be profitable.
+
+**Min Price Diff:** Minimum absolute price difference (EUR/kWh) required. Prevents action when spread percentage is high but actual savings are negligible.
+
+**Min Spread Discharge:** Same as Min Spread but for discharge decisions. Can be lower for self-consumption (any discharge saves money) or higher for grid export (must cover export costs).

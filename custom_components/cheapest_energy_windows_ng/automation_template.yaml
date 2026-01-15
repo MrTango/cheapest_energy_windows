@@ -603,7 +603,7 @@ action:
             state: 'on'
         sequence:
           # 1. Call the rotation service
-          - service: cheapest_energy_windows_tibber.rotate_tomorrow_settings
+          - service: cheapest_energy_windows_ng.rotate_tomorrow_settings
             data: {}
 
           # 2. Small delay for settings to propagate

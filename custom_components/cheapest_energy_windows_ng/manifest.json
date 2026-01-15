@@ -1,5 +1,5 @@
 {
-  "domain": "cheapest_energy_windows_tibber",
+  "domain": "cheapest_energy_windows_ng",
   "name": "Cheapest Energy Windows NG",
   "after_dependencies": ["input_number", "input_boolean", "input_select", "input_datetime", "input_text"],
   "codeowners": ["@MrTango"],

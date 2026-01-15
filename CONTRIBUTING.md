@@ -13,14 +13,14 @@ Thank you for your interest in contributing to Cheapest Energy Windows NG!
 
 ## Development Setup
 
-1. Copy `custom_components/cheapest_energy_windows` to your Home Assistant `custom_components` directory
+1. Copy `custom_components/cheapest_energy_windows_ng` to your Home Assistant `custom_components` directory
 2. Restart Home Assistant
 3. Enable debug logging if needed:
    ```yaml
    logger:
      default: info
      logs:
-       custom_components.cheapest_energy_windows_tibber: debug
+       custom_components.cheapest_energy_windows_ng: debug
    ```
 
 ## Code Style
