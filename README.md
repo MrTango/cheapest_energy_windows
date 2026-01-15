@@ -669,6 +669,26 @@ Contributions are welcome! Please:
 3. Make your changes
 4. Submit a pull request
 
+## Releasing
+
+This project uses an automated release workflow. To create a new release:
+
+1. **Update CHANGELOG.md** with the new version and changes
+2. **Trigger the release workflow**:
+   - Go to **Actions** → **Release** workflow
+   - Click **Run workflow**
+   - Enter the version number (e.g., `2.1.0`)
+   - Optionally add release notes (or leave empty to use CHANGELOG)
+   - Click **Run workflow**
+
+The workflow automatically:
+- Updates version in `manifest.json` and `const.py`
+- Commits the version bump
+- Creates and pushes a git tag
+- Creates a GitHub release with changelog notes
+
+HACS will pick up the new release automatically.
+
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
