@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.3] - 2025-01-16
+
+### Fixed
+
+- Skip brands check in HACS validation workflow
+
+### Documentation
+
+- Added comprehensive documentation for Forecast.Solar integration
+- Documented supported solar sensors and required attributes (`wh_period`, `wh_today_remaining`, `watts`)
+- Added setup instructions for solar optimization feature
+- Documented solar-related sensor attributes (`solar_optimization_active`, `solar_forecast_total_wh`, `net_import_wh`)
+
 ## [2.0.2] - 2025-01-15
 
 ### Changed
