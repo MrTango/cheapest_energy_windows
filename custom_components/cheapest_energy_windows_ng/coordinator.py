@@ -25,6 +25,8 @@ from .const import (
     PREFIX,
     DEFAULT_SOLAR_FORECAST_SENSOR,
     DEFAULT_SOLAR_OPTIMIZATION_ENABLED,
+    DEFAULT_SOLAR_FORECAST_SENSORS_TODAY,
+    DEFAULT_SOLAR_FORECAST_SENSORS_TOMORROW,
 )
 
 _LOGGER = logging.getLogger(LOGGER_NAME)
@@ -346,6 +348,8 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             # Solar optimization configuration
             "solar_optimization_enabled": bool(options.get("solar_optimization_enabled", DEFAULT_SOLAR_OPTIMIZATION_ENABLED)),
             "solar_forecast_sensor": options.get("solar_forecast_sensor", DEFAULT_SOLAR_FORECAST_SENSOR),
+            "solar_forecast_sensors_today": list(options.get("solar_forecast_sensors_today", DEFAULT_SOLAR_FORECAST_SENSORS_TODAY)),
+            "solar_forecast_sensors_tomorrow": list(options.get("solar_forecast_sensors_tomorrow", DEFAULT_SOLAR_FORECAST_SENSORS_TOMORROW)),
             "battery_usable_capacity": float(options.get("battery_usable_capacity", 10.0)),
             "skip_charge_solar_threshold": float(options.get("skip_charge_solar_threshold", 80)),
             "consumption_estimate": float(options.get("consumption_estimate", 500)),
