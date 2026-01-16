@@ -11,6 +11,10 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
     CALCULATION_AFFECTING_KEYS,
+    CONF_SOLAR_FORECAST_SENSORS_TODAY,
+    CONF_SOLAR_FORECAST_SENSORS_TOMORROW,
+    DEFAULT_SOLAR_FORECAST_SENSORS_TODAY,
+    DEFAULT_SOLAR_FORECAST_SENSORS_TOMORROW,
     DOMAIN,
     LOGGER_NAME,
     PREFIX,
@@ -138,15 +142,24 @@ async def async_setup_entry(
             "mdi:robot",
             r"^(automation\.|script\.|scene\.)[a-z0-9_]+$|^not_configured$"
         ),
-        # Solar forecast configuration (optional)
-        CEWText(
+        # Solar forecast display entities (read-only, shows selected sensor count)
+        CEWReadOnlyText(
             hass,
             config_entry,
-            "solar_forecast_sensor",
-            "Solar Forecast Sensor",
-            "not_configured",
+            "solar_forecast_sensors_today_display",
+            "Solar Forecast Today Sensors",
+            CONF_SOLAR_FORECAST_SENSORS_TODAY,
+            DEFAULT_SOLAR_FORECAST_SENSORS_TODAY,
             "mdi:solar-power",
-            None  # No pattern validation for optional entities
+        ),
+        CEWReadOnlyText(
+            hass,
+            config_entry,
+            "solar_forecast_sensors_tomorrow_display",
+            "Solar Forecast Tomorrow Sensors",
+            CONF_SOLAR_FORECAST_SENSORS_TOMORROW,
+            DEFAULT_SOLAR_FORECAST_SENSORS_TOMORROW,
+            "mdi:weather-sunny",
         ),
     ]
 
@@ -222,3 +235,72 @@ class CEWText(TextEntity):
                 coordinator = self.hass.data[DOMAIN][self._config_entry.entry_id].get("coordinator")
                 if coordinator:
                     await coordinator.async_request_refresh()
+
+
+class CEWReadOnlyText(TextEntity):
+    """Representation of a read-only CEW text entity for displaying multi-sensor configuration."""
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        config_entry: ConfigEntry,
+        key: str,
+        name: str,
+        config_key: str,
+        default: list,
+        icon: str,
+    ) -> None:
+        """Initialize the read-only text entity."""
+        self.hass = hass
+        self._config_entry = config_entry
+        self._key = key
+        self._config_key = config_key
+        self._default = default
+        self._attr_name = f"CEW {name}"
+        self._attr_unique_id = f"{PREFIX}{key}"
+        self._attr_icon = icon
+        self._attr_has_entity_name = False
+        self._attr_native_min = 1
+        self._attr_native_max = 255
+
+        # Set the display value based on selected sensors
+        self._update_display_value()
+
+    def _update_display_value(self) -> None:
+        """Update the display value based on configured sensors."""
+        sensors = self._config_entry.options.get(self._config_key, self._default)
+        if sensors:
+            count = len(sensors)
+            if count == 1:
+                # Show the single sensor entity_id
+                self._attr_native_value = sensors[0]
+            else:
+                # Show count for multiple sensors
+                self._attr_native_value = f"{count} sensors selected"
+        else:
+            self._attr_native_value = "not_configured"
+
+    @property
+    def device_info(self):
+        """Return device information."""
+        return {
+            "identifiers": {(DOMAIN, self._config_entry.entry_id)},
+            "name": "Cheapest Energy Windows NG",
+            "manufacturer": "Community",
+            "model": "Energy Optimizer",
+            "sw_version": VERSION,
+        }
+
+    async def async_set_value(self, value: str) -> None:
+        """Read-only entity - setting value updates display from config.
+
+        Note: This entity is read-only. Configuration is done via config flow.
+        Setting a value will just refresh the display from current config.
+        """
+        # Re-read from config (don't actually set the value)
+        self._update_display_value()
+        self.async_write_ha_state()
+
+    async def async_update(self) -> None:
+        """Update the entity state from config."""
+        self._update_display_value()
