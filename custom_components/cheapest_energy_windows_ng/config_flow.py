@@ -29,6 +29,9 @@ from .const import (
     CONF_BATTERY_CHARGE_SENSOR,
     CONF_BATTERY_DISCHARGE_SENSOR,
     CONF_BATTERY_POWER_SENSOR,
+    CONF_SOLAR_FORECAST_SENSORS_TODAY,
+    CONF_SOLAR_FORECAST_SENSORS_TOMORROW,
+    CONF_SOLAR_OPTIMIZATION_ENABLED,
     DEFAULT_PRICE_SENSOR,
     DEFAULT_VAT_RATE,
     DEFAULT_TAX,
@@ -38,6 +41,9 @@ from .const import (
     DEFAULT_BASE_USAGE_IDLE_STRATEGY,
     DEFAULT_BASE_USAGE_DISCHARGE_STRATEGY,
     DEFAULT_BASE_USAGE_AGGRESSIVE_STRATEGY,
+    DEFAULT_SOLAR_FORECAST_SENSORS_TODAY,
+    DEFAULT_SOLAR_FORECAST_SENSORS_TOMORROW,
+    DEFAULT_SOLAR_OPTIMIZATION_ENABLED,
     BASE_USAGE_CHARGE_OPTIONS,
     BASE_USAGE_IDLE_OPTIONS,
     BASE_USAGE_DISCHARGE_OPTIONS,
@@ -557,7 +563,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 "battery_off_action": user_input.get("battery_off_action", "not_configured"),
             }
             self.data.update(battery_ops)
-            return await self.async_step_automation()
+            return await self.async_step_solar_forecast()
 
         return self.async_show_form(
             step_id="battery_operations",
@@ -595,6 +601,68 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             }),
             description_placeholders={
                 "info": "⚙️ **Battery Operations (Optional)**\n\nLink existing automations, scripts, or scenes to battery modes. They'll be triggered automatically when modes change.\n\n**How it works:**\n- Create your battery control automations/scripts first\n- Select them from the dropdowns below\n- CEW will automatically trigger them when entering each mode\n\nLeave blank to configure later in Settings → Battery Operations."
+            },
+        )
+
+    async def async_step_solar_forecast(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Configure solar forecast sensors for solar optimization."""
+        if user_input is not None:
+            # Store solar forecast configuration in options
+            solar_config = {
+                CONF_SOLAR_OPTIMIZATION_ENABLED: user_input.get(
+                    CONF_SOLAR_OPTIMIZATION_ENABLED, DEFAULT_SOLAR_OPTIMIZATION_ENABLED
+                ),
+                CONF_SOLAR_FORECAST_SENSORS_TODAY: user_input.get(
+                    CONF_SOLAR_FORECAST_SENSORS_TODAY, DEFAULT_SOLAR_FORECAST_SENSORS_TODAY
+                ),
+                CONF_SOLAR_FORECAST_SENSORS_TOMORROW: user_input.get(
+                    CONF_SOLAR_FORECAST_SENSORS_TOMORROW, DEFAULT_SOLAR_FORECAST_SENSORS_TOMORROW
+                ),
+            }
+            self.options.update(solar_config)
+            return await self.async_step_automation()
+
+        return self.async_show_form(
+            step_id="solar_forecast",
+            data_schema=vol.Schema({
+                vol.Optional(
+                    CONF_SOLAR_OPTIMIZATION_ENABLED,
+                    default=DEFAULT_SOLAR_OPTIMIZATION_ENABLED
+                ): selector.BooleanSelector(),
+                vol.Optional(
+                    CONF_SOLAR_FORECAST_SENSORS_TODAY,
+                    default=DEFAULT_SOLAR_FORECAST_SENSORS_TODAY
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(
+                        domain="sensor",
+                        device_class=["energy"],
+                        multiple=True,
+                    )
+                ),
+                vol.Optional(
+                    CONF_SOLAR_FORECAST_SENSORS_TOMORROW,
+                    default=DEFAULT_SOLAR_FORECAST_SENSORS_TOMORROW
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(
+                        domain="sensor",
+                        device_class=["energy"],
+                        multiple=True,
+                    )
+                ),
+            }),
+            description_placeholders={
+                "info": "☀️ **Solar Forecast Configuration (Optional)**\n\n"
+                       "Enable solar optimization to skip unnecessary charging when solar production is expected.\n\n"
+                       "**How it works:**\n"
+                       "- Select Forecast.Solar sensors that provide production estimates\n"
+                       "- CEW will aggregate data from all selected sensors\n"
+                       "- Charging windows may be skipped if solar production covers expected consumption\n\n"
+                       "**Today Sensors:** Sensors providing today's solar forecast (e.g., sensor.energy_production_today)\n"
+                       "**Tomorrow Sensors:** Sensors providing tomorrow's solar forecast (e.g., sensor.energy_production_tomorrow)\n\n"
+                       "💡 **Tip:** Select multiple sensors if you have multiple solar arrays (e.g., different roof orientations).\n\n"
+                       "Leave empty to skip solar optimization."
             },
         )
 
@@ -806,5 +874,38 @@ class CEWOptionsFlow(config_entries.OptionsFlow):
                         self.config_entry.data.get(CONF_ADDITIONAL_COST, DEFAULT_ADDITIONAL_COST)
                     ),
                 ): vol.All(vol.Coerce(float), vol.Range(min=0, max=1)),
+                vol.Optional(
+                    CONF_SOLAR_OPTIMIZATION_ENABLED,
+                    default=options.get(
+                        CONF_SOLAR_OPTIMIZATION_ENABLED,
+                        DEFAULT_SOLAR_OPTIMIZATION_ENABLED
+                    ),
+                ): selector.BooleanSelector(),
+                vol.Optional(
+                    CONF_SOLAR_FORECAST_SENSORS_TODAY,
+                    default=options.get(
+                        CONF_SOLAR_FORECAST_SENSORS_TODAY,
+                        DEFAULT_SOLAR_FORECAST_SENSORS_TODAY
+                    ),
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(
+                        domain="sensor",
+                        device_class=["energy"],
+                        multiple=True,
+                    )
+                ),
+                vol.Optional(
+                    CONF_SOLAR_FORECAST_SENSORS_TOMORROW,
+                    default=options.get(
+                        CONF_SOLAR_FORECAST_SENSORS_TOMORROW,
+                        DEFAULT_SOLAR_FORECAST_SENSORS_TOMORROW
+                    ),
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(
+                        domain="sensor",
+                        device_class=["energy"],
+                        multiple=True,
+                    )
+                ),
             }),
         )
