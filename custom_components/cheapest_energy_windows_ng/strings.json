@@ -135,6 +135,18 @@
           "battery_off_action": "Select automation/script for off mode. Example: Set battery to manual mode when automation is disabled"
         }
       },
+      "solar_forecast": {
+        "title": "Solar Forecast Configuration (Optional)",
+        "description": "{info}",
+        "data": {
+          "solar_forecast_sensors_today": "Today's Solar Forecast Sensors",
+          "solar_forecast_sensors_tomorrow": "Tomorrow's Solar Forecast Sensors"
+        },
+        "data_description": {
+          "solar_forecast_sensors_today": "Select Forecast.Solar sensors providing today's solar production estimates. You can select multiple sensors if you have multiple solar arrays.",
+          "solar_forecast_sensors_tomorrow": "Select Forecast.Solar sensors providing tomorrow's solar production estimates. You can select multiple sensors if you have multiple solar arrays."
+        }
+      },
       "automation": {
         "title": "Battery Control Automation",
         "description": "{info}",

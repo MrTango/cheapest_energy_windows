@@ -3,13 +3,13 @@
   "spec": "005-the-user-can-select-multiple-forecast-solar-sensor",
   "state": "building",
   "subtasks": {
-    "completed": 2,
+    "completed": 3,
     "total": 10,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Update Config Flow UI",
+    "current": "Add Translations",
     "id": null,
     "total": 2
   },
@@ -18,8 +18,8 @@
     "max": 1
   },
   "session": {
-    "number": 3,
+    "number": 4,
     "started_at": "2026-01-16T09:30:07.736665"
   },
-  "last_update": "2026-01-16T09:33:34.505050"
+  "last_update": "2026-01-16T09:34:52.803799"
 }
