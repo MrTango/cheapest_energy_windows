@@ -230,3 +230,4 @@ AttributeError: 'ConfigEntry' object has no attribute 'runtime_data'
 ## Rules
 
 - always update the README.md and project-notes.md!
+- read EXPLANATIONS.md for more details

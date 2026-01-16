@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.5] - 2025-01-16
+
+### Fixed
+
+- Fix Options flow to support `tibber_action` as price sensor
+- Price sensor selector now uses dropdown with known sensors and allows custom values
+
 ## [2.0.4] - 2025-01-16
 
 ### Fixed

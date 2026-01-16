@@ -834,19 +834,58 @@ class CEWOptionsFlow(config_entries.OptionsFlow):
 
         options = self.config_entry.options
 
+        # Build price sensor options (including tibber_action if available)
+        price_sensor_options = []
+        current_price_sensor = options.get(
+            CONF_PRICE_SENSOR,
+            self.config_entry.data.get(CONF_PRICE_SENSOR, DEFAULT_PRICE_SENSOR)
+        )
+
+        # Add current sensor first if it exists
+        if current_price_sensor:
+            label = "Tibber API (Direct)" if current_price_sensor == "tibber_action" else current_price_sensor
+            price_sensor_options.append(
+                selector.SelectOptionDict(
+                    label=label,
+                    value=current_price_sensor
+                )
+            )
+
+        # Add tibber_action if Tibber service is available and not already added
+        if self.hass.services.has_service("tibber", "get_prices"):
+            if current_price_sensor != "tibber_action":
+                price_sensor_options.append(
+                    selector.SelectOptionDict(
+                        label="Tibber API (Direct)",
+                        value="tibber_action"
+                    )
+                )
+
+        # Add other price sensors from known integrations
+        for state in self.hass.states.async_all("sensor"):
+            entity_id = state.entity_id
+            if entity_id == current_price_sensor:
+                continue  # Already added
+            # Check for known price sensor patterns
+            if any(pattern in entity_id.lower() for pattern in ["nordpool", "entsoe", "tibber", "electricity_price", "energy_price"]):
+                price_sensor_options.append(
+                    selector.SelectOptionDict(
+                        label=entity_id,
+                        value=entity_id
+                    )
+                )
+
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema({
                 vol.Optional(
                     CONF_PRICE_SENSOR,
-                    default=options.get(
-                        CONF_PRICE_SENSOR,
-                        self.config_entry.data.get(CONF_PRICE_SENSOR, DEFAULT_PRICE_SENSOR)
-                    ),
-                ): selector.EntitySelector(
-                    selector.EntitySelectorConfig(
-                        domain="sensor",
-                        multiple=False,
+                    default=current_price_sensor,
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=price_sensor_options,
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                        custom_value=True,  # Allow entering custom sensor IDs
                     )
                 ),
                 vol.Optional(
