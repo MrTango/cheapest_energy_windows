@@ -407,60 +407,185 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         }
 
     async def _get_solar_forecast_data(self) -> Dict[str, Any]:
-        """Get solar forecast data from Forecast.Solar sensor.
+        """Get solar forecast data from multiple Forecast.Solar sensors.
 
-        Retrieves data from the configured Forecast.Solar sensor and normalizes
-        it to an internal format for use in charging optimization.
+        Retrieves data from the configured Forecast.Solar sensors and aggregates
+        them by summing Wh values for matching timestamps.
+
+        Supports both new multi-sensor configuration (solar_forecast_sensors_today,
+        solar_forecast_sensors_tomorrow) and legacy single sensor configuration
+        (solar_forecast_sensor) for backward compatibility.
 
         Returns:
             Dict containing:
-                - solar_forecast: List of dicts with timestamp, watts, wh
+                - solar_forecast: List of dicts with timestamp, watts, wh (combined)
                 - solar_forecast_today: Filtered list for today only
                 - solar_forecast_tomorrow: Filtered list for tomorrow only
                 - total_today_wh: Total Wh forecast for today
                 - total_tomorrow_wh: Total Wh forecast for tomorrow
-                - sensor_available: Boolean indicating if sensor data is available
+                - sensor_available: Boolean indicating if any sensor data is available
         """
-        # Get solar forecast sensor from config
         options = self.config_entry.options
-        solar_sensor_id = options.get("solar_forecast_sensor", DEFAULT_SOLAR_FORECAST_SENSOR)
         solar_enabled = options.get("solar_optimization_enabled", DEFAULT_SOLAR_OPTIMIZATION_ENABLED)
 
-        # Return empty data if solar optimization is disabled or no sensor configured
-        if not solar_enabled or not solar_sensor_id:
-            _LOGGER.debug("Solar optimization disabled or no sensor configured")
+        # Return empty data if solar optimization is disabled
+        if not solar_enabled:
+            _LOGGER.debug("Solar optimization disabled")
             return self._empty_solar_data()
 
+        # Get sensor lists from new multi-sensor config
+        sensors_today = list(options.get("solar_forecast_sensors_today", DEFAULT_SOLAR_FORECAST_SENSORS_TODAY))
+        sensors_tomorrow = list(options.get("solar_forecast_sensors_tomorrow", DEFAULT_SOLAR_FORECAST_SENSORS_TOMORROW))
+
+        # Backward compatibility: if new config is empty, check for legacy single sensor
+        legacy_sensor = options.get("solar_forecast_sensor", DEFAULT_SOLAR_FORECAST_SENSOR)
+        if not sensors_today and not sensors_tomorrow and legacy_sensor:
+            _LOGGER.debug(f"Using legacy single sensor config: {legacy_sensor}")
+            # Legacy sensor typically provides both today and tomorrow data
+            sensors_today = [legacy_sensor]
+            sensors_tomorrow = [legacy_sensor]
+
+        # Return empty data if no sensors configured
+        if not sensors_today and not sensors_tomorrow:
+            _LOGGER.debug("No solar forecast sensors configured")
+            return self._empty_solar_data()
+
+        now = dt_util.now()
+        today = now.date()
+        tomorrow = today + timedelta(days=1)
+
+        # Aggregate data from today sensors
+        aggregated_today = await self._aggregate_solar_sensors(sensors_today, today)
+        _LOGGER.debug(f"Aggregated today data from {len(sensors_today)} sensors: {len(aggregated_today)} entries")
+
+        # Aggregate data from tomorrow sensors
+        aggregated_tomorrow = await self._aggregate_solar_sensors(sensors_tomorrow, tomorrow)
+        _LOGGER.debug(f"Aggregated tomorrow data from {len(sensors_tomorrow)} sensors: {len(aggregated_tomorrow)} entries")
+
+        # Combine all forecast data
+        solar_forecast = aggregated_today + aggregated_tomorrow
+        solar_forecast.sort(key=lambda x: x["timestamp"])
+
+        # Filter by day for clarity
+        solar_forecast_today = [
+            entry for entry in solar_forecast
+            if entry["timestamp"].date() == today
+        ]
+        solar_forecast_tomorrow = [
+            entry for entry in solar_forecast
+            if entry["timestamp"].date() == tomorrow
+        ]
+
+        # Calculate daily totals
+        total_today_wh = sum(entry["wh"] for entry in solar_forecast_today)
+        total_tomorrow_wh = sum(entry["wh"] for entry in solar_forecast_tomorrow)
+
+        sensor_available = len(solar_forecast_today) > 0 or len(solar_forecast_tomorrow) > 0
+
+        _LOGGER.debug(f"Solar forecast entries: {len(solar_forecast)}")
+        _LOGGER.debug(f"Solar forecast today entries: {len(solar_forecast_today)}")
+        _LOGGER.debug(f"Solar forecast tomorrow entries: {len(solar_forecast_tomorrow)}")
+        _LOGGER.debug(f"Total today Wh: {total_today_wh}, Total tomorrow Wh: {total_tomorrow_wh}")
+
+        return {
+            "solar_forecast": solar_forecast,
+            "solar_forecast_today": solar_forecast_today,
+            "solar_forecast_tomorrow": solar_forecast_tomorrow,
+            "total_today_wh": total_today_wh,
+            "total_tomorrow_wh": total_tomorrow_wh,
+            "sensor_available": sensor_available,
+        }
+
+    async def _aggregate_solar_sensors(
+        self, sensor_ids: list[str], target_date
+    ) -> list[Dict[str, Any]]:
+        """Aggregate solar forecast data from multiple sensors for a specific date.
+
+        Args:
+            sensor_ids: List of sensor entity IDs to aggregate
+            target_date: The date to filter forecast data for
+
+        Returns:
+            List of dicts with timestamp, watts, wh - aggregated across all sensors
+        """
+        if not sensor_ids:
+            return []
+
+        # Dict to aggregate values by timestamp: timestamp_iso -> {watts: float, wh: float}
+        aggregated: Dict[str, Dict[str, float]] = {}
+
+        for sensor_id in sensor_ids:
+            if not sensor_id:
+                continue
+
+            sensor_data = await self._get_single_sensor_forecast(sensor_id, target_date)
+
+            for entry in sensor_data:
+                # Use ISO format string as key for aggregation
+                ts_key = entry["timestamp"].isoformat()
+
+                if ts_key not in aggregated:
+                    aggregated[ts_key] = {
+                        "timestamp": entry["timestamp"],
+                        "watts": 0.0,
+                        "wh": 0.0,
+                    }
+
+                # Sum values from this sensor
+                aggregated[ts_key]["watts"] += entry["watts"]
+                aggregated[ts_key]["wh"] += entry["wh"]
+
+        # Convert back to list format
+        result = [
+            {
+                "timestamp": data["timestamp"],
+                "watts": data["watts"],
+                "wh": data["wh"],
+            }
+            for data in aggregated.values()
+        ]
+
+        # Sort by timestamp
+        result.sort(key=lambda x: x["timestamp"])
+
+        return result
+
+    async def _get_single_sensor_forecast(
+        self, sensor_id: str, target_date
+    ) -> list[Dict[str, Any]]:
+        """Get solar forecast data from a single Forecast.Solar sensor.
+
+        Args:
+            sensor_id: The sensor entity ID
+            target_date: The date to filter forecast data for
+
+        Returns:
+            List of dicts with timestamp, watts, wh for the target date
+        """
         # Get the solar forecast sensor state
-        solar_state = self.hass.states.get(solar_sensor_id)
+        solar_state = self.hass.states.get(sensor_id)
 
         if not solar_state:
-            _LOGGER.warning(f"Solar forecast sensor {solar_sensor_id} not found")
-            return self._empty_solar_data()
+            _LOGGER.warning(f"Solar forecast sensor {sensor_id} not found")
+            return []
 
         if solar_state.state in ("unavailable", "unknown"):
-            _LOGGER.debug(f"Solar forecast sensor {solar_sensor_id} is {solar_state.state}")
-            return self._empty_solar_data()
+            _LOGGER.debug(f"Solar forecast sensor {sensor_id} is {solar_state.state}")
+            return []
 
-        _LOGGER.debug(f"Solar forecast sensor state: {solar_state.state}")
-        _LOGGER.debug(f"Solar forecast sensor attributes: {list(solar_state.attributes.keys())}")
+        _LOGGER.debug(f"Solar forecast sensor {sensor_id} state: {solar_state.state}")
 
         # Extract forecast data from sensor attributes
         # Forecast.Solar provides data in several formats:
         # - watts: dict of timestamp -> instantaneous watts
         # - wh_period: dict of timestamp -> Wh for each period
-        # - wh_days: dict of date -> total Wh for day
         watts_data = solar_state.attributes.get("watts", {})
         wh_period_data = solar_state.attributes.get("wh_period", {})
-        wh_days_data = solar_state.attributes.get("wh_days", {})
 
-        # Normalize the forecast data to internal format
-        solar_forecast = []
-        now = dt_util.now()
-        today = now.date()
-        tomorrow = today + timedelta(days=1)
+        # Parse and filter forecast data for target date
+        result = []
 
-        # Parse wh_period data (preferred) or watts data
+        # Use wh_period data (preferred) or watts data
         data_source = wh_period_data if wh_period_data else watts_data
 
         for timestamp_str, value in data_source.items():
@@ -480,6 +605,10 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 else:
                     timestamp = timestamp_str
 
+                # Filter for target date only
+                if timestamp.date() != target_date:
+                    continue
+
                 # Get watts and wh values
                 wh_value = wh_period_data.get(timestamp_str, 0) if wh_period_data else 0
                 watts_value = watts_data.get(timestamp_str, 0) if watts_data else value
@@ -492,7 +621,7 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                     wh_value = 0
                     watts_value = 0
 
-                solar_forecast.append({
+                result.append({
                     "timestamp": timestamp,
                     "watts": watts_value,
                     "wh": wh_value,
@@ -502,58 +631,7 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 _LOGGER.debug(f"Error parsing solar forecast timestamp {timestamp_str}: {e}")
                 continue
 
-        # Sort by timestamp
-        solar_forecast.sort(key=lambda x: x["timestamp"])
-
-        # Filter for today and tomorrow
-        solar_forecast_today = [
-            entry for entry in solar_forecast
-            if entry["timestamp"].date() == today
-        ]
-        solar_forecast_tomorrow = [
-            entry for entry in solar_forecast
-            if entry["timestamp"].date() == tomorrow
-        ]
-
-        # Get daily totals from wh_days if available
-        total_today_wh = 0
-        total_tomorrow_wh = 0
-
-        if wh_days_data:
-            for date_str, wh_value in wh_days_data.items():
-                try:
-                    if isinstance(date_str, str):
-                        date_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
-                    else:
-                        date_obj = date_str
-
-                    wh_float = float(wh_value) if wh_value else 0
-
-                    if date_obj == today:
-                        total_today_wh = wh_float
-                    elif date_obj == tomorrow:
-                        total_tomorrow_wh = wh_float
-                except (ValueError, TypeError) as e:
-                    _LOGGER.debug(f"Error parsing wh_days date {date_str}: {e}")
-                    continue
-        else:
-            # Calculate totals from period data
-            total_today_wh = sum(entry["wh"] for entry in solar_forecast_today)
-            total_tomorrow_wh = sum(entry["wh"] for entry in solar_forecast_tomorrow)
-
-        _LOGGER.debug(f"Solar forecast entries: {len(solar_forecast)}")
-        _LOGGER.debug(f"Solar forecast today entries: {len(solar_forecast_today)}")
-        _LOGGER.debug(f"Solar forecast tomorrow entries: {len(solar_forecast_tomorrow)}")
-        _LOGGER.debug(f"Total today Wh: {total_today_wh}, Total tomorrow Wh: {total_tomorrow_wh}")
-
-        return {
-            "solar_forecast": solar_forecast,
-            "solar_forecast_today": solar_forecast_today,
-            "solar_forecast_tomorrow": solar_forecast_tomorrow,
-            "total_today_wh": total_today_wh,
-            "total_tomorrow_wh": total_tomorrow_wh,
-            "sensor_available": True,
-        }
+        return result
 
     def _empty_solar_data(self) -> Dict[str, Any]:
         """Return empty solar forecast data structure."""
