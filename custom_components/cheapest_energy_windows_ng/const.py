@@ -5,7 +5,7 @@ from typing import Final
 # Domain
 DOMAIN: Final = "cheapest_energy_windows_ng"
 PREFIX: Final = "cew_"
-VERSION: Final = "2.0.3"
+VERSION: Final = "2.0.4"
 
 # Platforms
 PLATFORMS: Final = ["sensor", "number", "select", "switch", "time", "text"]
