@@ -819,15 +819,11 @@ Total: 71 entities
         config_entry: config_entries.ConfigEntry,
     ) -> config_entries.OptionsFlow:
         """Get the options flow for this handler."""
-        return CEWOptionsFlow(config_entry)
+        return CEWOptionsFlow()
 
 
 class CEWOptionsFlow(config_entries.OptionsFlow):
     """Handle options for Cheapest Energy Windows NG."""
-
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        """Initialize options flow."""
-        self.config_entry = config_entry
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
