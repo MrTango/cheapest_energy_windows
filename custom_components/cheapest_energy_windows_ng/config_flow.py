@@ -874,5 +874,38 @@ class CEWOptionsFlow(config_entries.OptionsFlow):
                         self.config_entry.data.get(CONF_ADDITIONAL_COST, DEFAULT_ADDITIONAL_COST)
                     ),
                 ): vol.All(vol.Coerce(float), vol.Range(min=0, max=1)),
+                vol.Optional(
+                    CONF_SOLAR_OPTIMIZATION_ENABLED,
+                    default=options.get(
+                        CONF_SOLAR_OPTIMIZATION_ENABLED,
+                        DEFAULT_SOLAR_OPTIMIZATION_ENABLED
+                    ),
+                ): selector.BooleanSelector(),
+                vol.Optional(
+                    CONF_SOLAR_FORECAST_SENSORS_TODAY,
+                    default=options.get(
+                        CONF_SOLAR_FORECAST_SENSORS_TODAY,
+                        DEFAULT_SOLAR_FORECAST_SENSORS_TODAY
+                    ),
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(
+                        domain="sensor",
+                        device_class=["energy"],
+                        multiple=True,
+                    )
+                ),
+                vol.Optional(
+                    CONF_SOLAR_FORECAST_SENSORS_TOMORROW,
+                    default=options.get(
+                        CONF_SOLAR_FORECAST_SENSORS_TOMORROW,
+                        DEFAULT_SOLAR_FORECAST_SENSORS_TOMORROW
+                    ),
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(
+                        domain="sensor",
+                        device_class=["energy"],
+                        multiple=True,
+                    )
+                ),
             }),
         )
