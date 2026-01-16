@@ -29,6 +29,8 @@ CONF_BASE_USAGE_AGGRESSIVE_STRATEGY: Final = "base_usage_aggressive_strategy"
 
 # Solar forecast configuration keys
 CONF_SOLAR_FORECAST_SENSOR: Final = "solar_forecast_sensor"
+CONF_SOLAR_FORECAST_SENSORS_TODAY: Final = "solar_forecast_sensors_today"
+CONF_SOLAR_FORECAST_SENSORS_TOMORROW: Final = "solar_forecast_sensors_tomorrow"
 CONF_SOLAR_OPTIMIZATION_ENABLED: Final = "solar_optimization_enabled"
 CONF_BATTERY_USABLE_CAPACITY: Final = "battery_usable_capacity"
 CONF_SKIP_CHARGE_SOLAR_THRESHOLD: Final = "skip_charge_solar_threshold"
@@ -68,6 +70,8 @@ DEFAULT_BASE_USAGE_AGGRESSIVE_STRATEGY: Final = "same_as_discharge"
 
 # Solar forecast default values
 DEFAULT_SOLAR_FORECAST_SENSOR: Final = ""
+DEFAULT_SOLAR_FORECAST_SENSORS_TODAY: Final = []
+DEFAULT_SOLAR_FORECAST_SENSORS_TOMORROW: Final = []
 DEFAULT_SOLAR_OPTIMIZATION_ENABLED: Final = False
 DEFAULT_BATTERY_USABLE_CAPACITY: Final = 10.0
 DEFAULT_SKIP_CHARGE_SOLAR_THRESHOLD: Final = 80
