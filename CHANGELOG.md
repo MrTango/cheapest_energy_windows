@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.6] - 2025-01-20
+
+### Fixed
+
+- Options flow now shows all settings in a 7-step wizard matching the initial setup
+- Options flow no longer loses existing settings when reconfiguring (critical bug fix)
+
+### Changed
+
+- Improved window calculation algorithm with global energy-aware selection
+  - Discharge windows selected first from expensive periods
+  - Charge windows selected globally from cheapest prices ensuring temporal validity
+  - Energy flow simulation prevents battery from going empty during discharge
+
 ## [2.0.5] - 2025-01-16
 
 ### Fixed
