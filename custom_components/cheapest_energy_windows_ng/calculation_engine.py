@@ -181,40 +181,31 @@ class WindowCalculationEngine:
         solar_optimization_enabled = config.get("solar_optimization_enabled", False)
         solar_forecast = config.get("solar_forecast", []) if solar_optimization_enabled else []
 
-        # Build solar config dict for charge window calculation
+        # Build solar config dict for window calculations
         solar_config = {
             "solar_optimization_enabled": solar_optimization_enabled,
             "battery_usable_capacity": config.get("battery_usable_capacity", 10.0),
             "skip_charge_solar_threshold": config.get("skip_charge_solar_threshold", 80),
         }
 
-        _LOGGER.debug(
-            f"Solar optimization: enabled={solar_optimization_enabled}, "
-            f"forecast_entries={len(solar_forecast) if solar_forecast else 0}"
-        )
-
-        # Find windows using the pre-filtered prices
-        charge_windows = self._find_charge_windows(
-            prices_for_charge_calc,  # Use filtered prices
-            num_charge_windows,
-            cheap_percentile,
-            min_spread,
-            min_price_diff,
-            solar_forecast=solar_forecast if solar_optimization_enabled else None,
-            solar_config=solar_config if solar_optimization_enabled else None
-        )
-
         # Build solar config dict for discharge window calculation
-        # Include consumption_estimate for net import calculation
         discharge_solar_config = {
             "solar_optimization_enabled": solar_optimization_enabled,
             "battery_usable_capacity": config.get("battery_usable_capacity", 10.0),
             "consumption_estimate": config.get("consumption_estimate", 500.0),
         } if solar_optimization_enabled else None
 
+        _LOGGER.debug(
+            f"Solar optimization: enabled={solar_optimization_enabled}, "
+            f"forecast_entries={len(solar_forecast) if solar_forecast else 0}"
+        )
+
+        # ============ GLOBAL ENERGY-AWARE WINDOW SELECTION ============
+        # Step 1: Find ALL discharge windows FIRST (expensive periods)
+        # We need an empty charge list initially for discharge window selection
         discharge_windows = self._find_discharge_windows(
-            prices_for_discharge_calc,  # Use filtered prices
-            charge_windows,
+            prices_for_discharge_calc,
+            [],  # Empty charge windows initially
             num_discharge_windows,
             expensive_percentile,
             min_spread_discharge,
@@ -223,6 +214,37 @@ class WindowCalculationEngine:
             solar_config=discharge_solar_config
         )
 
+        # Step 2: Calculate total energy needed for ALL discharge windows
+        energy_needed_wh, min_charge_windows = self._calculate_energy_requirement(
+            discharge_windows, config
+        )
+
+        # Step 3: Select charge windows GLOBALLY (cheapest first, ensuring temporal validity)
+        charge_windows = self._select_charge_windows_globally(
+            prices_for_charge_calc,
+            discharge_windows,
+            num_charge_windows,
+            min_charge_windows,
+            cheap_percentile,
+            min_spread,
+            min_price_diff,
+            config,
+            solar_forecast=solar_forecast if solar_optimization_enabled else None,
+            solar_config=solar_config if solar_optimization_enabled else None
+        )
+
+        # Step 4: Simulate energy flow to ensure battery never goes negative
+        charge_windows, simulation_valid = self._simulate_energy_flow(
+            processed_prices, charge_windows, discharge_windows, config
+        )
+
+        if not simulation_valid:
+            _LOGGER.warning(
+                "Energy flow simulation could not be validated - "
+                "battery may run empty during some discharge windows"
+            )
+
+        # Step 5: Find aggressive discharge windows
         aggressive_windows = self._find_aggressive_discharge_windows(
             prices_for_discharge_calc,  # Use filtered prices for consistency
             charge_windows,
@@ -722,6 +744,336 @@ class WindowCalculationEngine:
             )
 
         return selected
+
+    def _calculate_energy_requirement(
+        self,
+        discharge_windows: List[Dict[str, Any]],
+        config: Dict[str, Any]
+    ) -> Tuple[float, int]:
+        """Calculate total energy needed for all discharge windows.
+
+        Args:
+            discharge_windows: List of discharge windows
+            config: Configuration dictionary
+
+        Returns:
+            Tuple of (total_energy_wh, min_charge_windows_needed)
+        """
+        if not discharge_windows:
+            return 0.0, 0
+
+        # Get battery configuration
+        discharge_power = config.get("discharge_power", 2400)  # Watts
+        charge_power = config.get("charge_power", 2400)  # Watts
+        battery_rte = config.get("battery_rte", 85) / 100  # Round-trip efficiency as decimal
+
+        # Calculate total discharge energy
+        total_discharge_wh = 0.0
+        for window in discharge_windows:
+            duration_hours = window["duration"] / 60
+            total_discharge_wh += duration_hours * discharge_power
+
+        # Calculate minimum charge windows needed (accounting for efficiency losses)
+        # Energy in = Energy out / efficiency
+        energy_needed_wh = total_discharge_wh / battery_rte
+
+        # Calculate how much energy one charge window provides
+        if discharge_windows:
+            window_duration_hours = discharge_windows[0]["duration"] / 60
+        else:
+            window_duration_hours = 0.25  # Default 15 minutes
+
+        energy_per_charge_window_wh = window_duration_hours * charge_power
+
+        # Calculate minimum charge windows (round up)
+        if energy_per_charge_window_wh > 0:
+            min_charge_windows = int(np.ceil(energy_needed_wh / energy_per_charge_window_wh))
+        else:
+            min_charge_windows = 0
+
+        _LOGGER.debug(
+            f"Energy requirement: {total_discharge_wh:.0f}Wh discharge, "
+            f"{energy_needed_wh:.0f}Wh charge needed (RTE={battery_rte:.0%}), "
+            f"min {min_charge_windows} charge windows"
+        )
+
+        return energy_needed_wh, min_charge_windows
+
+    def _select_charge_windows_globally(
+        self,
+        prices: List[Dict[str, Any]],
+        discharge_windows: List[Dict[str, Any]],
+        num_windows: int,
+        min_charge_windows: int,
+        cheap_percentile: float,
+        min_spread: float,
+        min_price_diff: float,
+        config: Dict[str, Any],
+        solar_forecast: Optional[List[Dict[str, Any]]] = None,
+        solar_config: Optional[Dict[str, Any]] = None
+    ) -> List[Dict[str, Any]]:
+        """Select charge windows globally based on energy needs.
+
+        Uses the cheapest available windows from ANY time that can provide
+        energy BEFORE discharge windows need it.
+
+        Args:
+            prices: List of processed price data
+            discharge_windows: Already selected discharge windows
+            num_windows: User-configured number of charge windows
+            min_charge_windows: Minimum charge windows needed for energy balance
+            cheap_percentile: Percentile threshold for cheap prices
+            min_spread: Minimum spread percentage required
+            min_price_diff: Minimum price difference required
+            config: Configuration dictionary
+            solar_forecast: Optional solar forecast data
+            solar_config: Optional solar optimization config
+
+        Returns:
+            List of selected charge windows
+        """
+        if not prices:
+            return []
+
+        # Use the larger of user config or calculated minimum
+        target_windows = max(num_windows, min_charge_windows)
+
+        if target_windows <= 0:
+            return []
+
+        # Build set of discharge window indices to exclude
+        discharge_indices = {w["index"] for w in discharge_windows}
+
+        # Sort discharge windows chronologically
+        sorted_discharge = sorted(discharge_windows, key=lambda x: x["timestamp"]) if discharge_windows else []
+
+        # Extract solar optimization settings
+        solar_enabled = False
+        battery_capacity_wh = 0.0
+        skip_threshold = 80.0
+
+        if solar_config:
+            solar_enabled = solar_config.get("solar_optimization_enabled", False)
+            battery_capacity_wh = solar_config.get("battery_usable_capacity", 10.0) * 1000
+            skip_threshold = solar_config.get("skip_charge_solar_threshold", 80)
+
+        # Build list of all available charge candidates (not in discharge windows)
+        candidates = []
+        for i, price_data in enumerate(prices):
+            if i in discharge_indices:
+                continue
+
+            # For each candidate, find the LAST discharge window it can serve
+            # (a charge window can serve any discharge that comes AFTER it)
+            serves_discharge = False
+            if sorted_discharge:
+                for dw in sorted_discharge:
+                    if price_data["timestamp"] < dw["timestamp"]:
+                        serves_discharge = True
+                        break
+            else:
+                # No discharge windows - all charge windows are valid
+                serves_discharge = True
+
+            if serves_discharge:
+                candidates.append({
+                    "index": i,
+                    "timestamp": price_data["timestamp"],
+                    "price": price_data["price"],
+                    "duration": price_data["duration"]
+                })
+
+        if not candidates:
+            _LOGGER.warning("No charge window candidates available (all times are after last discharge)")
+            return []
+
+        # Sort by price (cheapest first) - this is the key to global optimization
+        candidates.sort(key=lambda x: x["price"])
+
+        # Calculate average expensive price for spread calculation
+        price_array = np.array([p["price"] for p in prices])
+        expensive_avg = np.mean(price_array[price_array > np.percentile(price_array, 100 - cheap_percentile)])
+
+        # Select windows
+        selected = []
+        skipped_due_to_solar = 0
+
+        for candidate in candidates:
+            if len(selected) >= target_windows:
+                break
+
+            # Check solar optimization - skip charging if solar will fill the battery
+            if solar_enabled and solar_forecast and battery_capacity_wh > 0:
+                window_solar_wh = self._get_solar_for_window(
+                    solar_forecast,
+                    candidate["timestamp"],
+                    candidate["duration"]
+                )
+
+                if self._should_skip_charging(
+                    window_solar_wh,
+                    battery_capacity_wh,
+                    skip_threshold
+                ):
+                    _LOGGER.debug(
+                        f"Skipping charge window at {candidate['timestamp'].strftime('%H:%M')} "
+                        f"due to solar forecast ({window_solar_wh:.0f}Wh expected)"
+                    )
+                    skipped_due_to_solar += 1
+                    continue
+
+            # Test spread with this window
+            test_prices = [s["price"] for s in selected] + [candidate["price"]]
+            cheap_avg = np.mean(test_prices)
+
+            # Calculate spread percentage
+            if cheap_avg > 0:
+                spread_pct = ((expensive_avg - cheap_avg) / cheap_avg) * 100
+                price_diff = expensive_avg - cheap_avg
+
+                if spread_pct >= min_spread and price_diff >= min_price_diff:
+                    selected.append(candidate)
+
+        if skipped_due_to_solar > 0:
+            _LOGGER.debug(
+                f"Solar optimization: skipped {skipped_due_to_solar} charge windows due to solar forecast"
+            )
+
+        _LOGGER.debug(
+            f"Global charge selection: selected {len(selected)} windows from {len(candidates)} candidates "
+            f"(target={target_windows}, min_needed={min_charge_windows})"
+        )
+
+        return selected
+
+    def _simulate_energy_flow(
+        self,
+        prices: List[Dict[str, Any]],
+        charge_windows: List[Dict[str, Any]],
+        discharge_windows: List[Dict[str, Any]],
+        config: Dict[str, Any]
+    ) -> Tuple[List[Dict[str, Any]], bool]:
+        """Simulate energy flow to verify battery never goes negative.
+
+        Runs a chronological simulation of the battery state to ensure
+        there's always enough energy for discharge windows.
+
+        Args:
+            prices: All price windows (for finding additional charge candidates)
+            charge_windows: Selected charge windows
+            discharge_windows: Selected discharge windows
+            config: Configuration dictionary
+
+        Returns:
+            Tuple of (potentially modified charge windows, simulation_valid)
+        """
+        if not discharge_windows:
+            return charge_windows, True
+
+        # Get battery configuration
+        charge_power = config.get("charge_power", 2400)  # Watts
+        discharge_power = config.get("discharge_power", 2400)  # Watts
+        battery_rte = config.get("battery_rte", 85) / 100
+
+        # Create timeline of all events
+        charge_indices = {w["index"] for w in charge_windows}
+        discharge_indices = {w["index"] for w in discharge_windows}
+
+        # Build chronological event list
+        events = []
+        for i, price_data in enumerate(prices):
+            if i in charge_indices:
+                duration_hours = price_data["duration"] / 60
+                energy_wh = duration_hours * charge_power * battery_rte  # Account for efficiency on charge
+                events.append({
+                    "timestamp": price_data["timestamp"],
+                    "type": "charge",
+                    "energy_wh": energy_wh,
+                    "index": i,
+                    "price": price_data["price"]
+                })
+            elif i in discharge_indices:
+                duration_hours = price_data["duration"] / 60
+                energy_wh = duration_hours * discharge_power
+                events.append({
+                    "timestamp": price_data["timestamp"],
+                    "type": "discharge",
+                    "energy_wh": energy_wh,
+                    "index": i,
+                    "price": price_data["price"]
+                })
+
+        # Sort by timestamp
+        events.sort(key=lambda x: x["timestamp"])
+
+        # Simulate energy flow
+        battery_wh = 0.0
+        simulation_valid = True
+        deficit_point = None
+
+        for event in events:
+            if event["type"] == "charge":
+                battery_wh += event["energy_wh"]
+            else:  # discharge
+                battery_wh -= event["energy_wh"]
+                if battery_wh < 0:
+                    simulation_valid = False
+                    deficit_point = event
+                    _LOGGER.debug(
+                        f"Energy simulation: deficit at {event['timestamp'].strftime('%H:%M')} "
+                        f"(battery would be {battery_wh:.0f}Wh)"
+                    )
+                    break
+
+        if simulation_valid:
+            _LOGGER.debug(f"Energy simulation: valid, final battery state={battery_wh:.0f}Wh")
+            return charge_windows, True
+
+        # Try to fix by adding more charge windows before the deficit point
+        if deficit_point:
+            _LOGGER.debug(
+                f"Energy simulation: attempting to add charge window before "
+                f"{deficit_point['timestamp'].strftime('%H:%M')}"
+            )
+
+            # Find candidates before deficit point
+            existing_indices = charge_indices | discharge_indices
+            candidates = []
+
+            for i, price_data in enumerate(prices):
+                if i in existing_indices:
+                    continue
+                if price_data["timestamp"] < deficit_point["timestamp"]:
+                    candidates.append({
+                        "index": i,
+                        "timestamp": price_data["timestamp"],
+                        "price": price_data["price"],
+                        "duration": price_data["duration"]
+                    })
+
+            # Sort by price (cheapest first)
+            candidates.sort(key=lambda x: x["price"])
+
+            if candidates:
+                # Add the cheapest available window
+                new_charge = candidates[0]
+                modified_charge = list(charge_windows) + [new_charge]
+
+                _LOGGER.info(
+                    f"Energy simulation: added charge window at {new_charge['timestamp'].strftime('%H:%M')} "
+                    f"@ {new_charge['price']:.4f} EUR/kWh to cover deficit"
+                )
+
+                # Recursively validate the new configuration
+                return self._simulate_energy_flow(
+                    prices, modified_charge, discharge_windows, config
+                )
+            else:
+                _LOGGER.warning(
+                    "Energy simulation: no charge windows available before deficit point"
+                )
+
+        return charge_windows, False
 
     def _find_aggressive_discharge_windows(
         self,

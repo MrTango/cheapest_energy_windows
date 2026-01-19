@@ -226,36 +226,63 @@ To install these:
 
 ### Window Selection Algorithm
 
-The algorithm operates on either **15-minute or 1-hour intervals** depending on your configuration:
+The algorithm uses **Global Energy-Aware Selection** to optimize battery usage across the entire day:
 
 1. **Data Processing**:
    - **15-minute mode**: Uses Nord Pool's quarter-hourly data directly (96 data points per day)
    - **1-hour mode**: Aggregates four 15-minute periods into hourly averages (24 data points per day)
 
-2. **Percentile Filtering**:
-   - Identifies the cheapest X% of windows for charging
+2. **Find Discharge Windows First**:
    - Identifies the most expensive Y% of windows for discharging
+   - Calculates total energy needed for ALL discharge windows
+   - Example: 8 discharge windows × 15min × 2400W = 4.8 kWh needed
 
-3. **Progressive Selection**:
-   - Starts with most extreme prices
-   - Adds windows while maintaining minimum spread requirements
-   - Ensures profitability considering round-trip efficiency
+3. **Calculate Energy Requirements**:
+   ```
+   energy_needed = total_discharge_energy / battery_efficiency
+   min_charge_windows = ceil(energy_needed / energy_per_charge_window)
+   ```
 
-4. **Spread Calculation**:
+4. **Global Charge Window Selection**:
+   - Sorts ALL available windows by price (cheapest first)
+   - Selects windows that occur BEFORE at least one discharge window
+   - Prefers absolute cheapest times (e.g., night prices over daytime)
+   - Ensures sufficient energy for ALL discharge periods
+
+5. **Energy Flow Simulation**:
+   - Simulates battery state chronologically hour-by-hour
+   - Verifies battery never goes negative during any discharge
+   - Automatically adds more charge windows if needed
+
+6. **Spread Calculation**:
    ```
    Spread = ((expensive_price - cheap_price) / cheap_price) * 100
    ```
 
-5. **State Determination**:
+7. **State Determination**:
    - **Charge**: Current window is in cheap windows and spread requirement met
    - **Discharge**: Current window is in expensive windows and spread requirement met
    - **Discharge Aggressive**: Current window meets aggressive discharge spread
    - **Idle**: No conditions met
    - **Off**: Automation disabled
 
+#### Example: Global Optimization in Action
+
+**Scenario**: Night prices are 0.10€, morning peak 0.45€, day 0.25€, evening peak 0.50€
+
+**Old behavior** (local optimization):
+- Charge: 10:00-14:00 (cheapest during daytime only)
+- Discharge: 07:00-09:00 + 17:00-21:00
+- ⚠️ Problem: Battery empty at 07:00!
+
+**New behavior** (global optimization):
+- Charge: 00:00-04:30 (cheapest across entire day = night)
+- Discharge: 07:00-09:00 + 17:00-21:00
+- ✅ Result: Night charging covers BOTH morning AND evening peaks
+
 ### Entities Created
 
-The integration creates 69 configuration entities:
+The integration creates 67 configuration entities:
 
 #### Sensors
 - `sensor.cew_today`: Current state and window information for today
@@ -270,7 +297,7 @@ The integration creates 69 configuration entities:
 - Price overrides
 - Solar optimization (battery capacity, consumption estimate, skip threshold)
 
-#### Input Booleans (19)
+#### Input Booleans (17)
 - Automation enable/disable
 - Notification settings
 - Time override enables

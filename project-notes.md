@@ -180,7 +180,10 @@ STATE_OFF = "off"
 
 ## Testing
 
-No automated test infrastructure exists. Manual testing:
+write test first, TDD!
+use pytest
+
+Manual testing:
 
 1. **Verify Tibber service availability**:
    - Developer Tools > Services
@@ -202,6 +205,103 @@ No automated test infrastructure exists. Manual testing:
 4. **Verify proxy sensor attributes**:
    - `sensor.cew_price_sensor_proxy`
    - Check `raw_today`, `raw_tomorrow`, `tomorrow_valid`, `tibber_action_mode`
+
+## Global Energy-Aware Window Selection
+
+### Problem Solved
+
+Traditional algorithms select cheapest (charge) and most expensive (discharge) windows independently. This creates scenarios where:
+
+- Discharge windows scheduled early morning (07:00-09:00)
+- Charge windows scheduled at midday (10:00-14:00) - cheapest during "daytime"
+- Battery drains overnight from consumption
+- By morning, battery empty → forced to buy expensive grid power
+
+### Solution: Global Optimization
+
+The algorithm now optimizes **globally across the entire day**:
+
+1. **Find discharge windows FIRST** - identify all expensive periods
+2. **Calculate total energy needed** - sum energy for ALL discharge windows
+3. **Select charge windows globally** - pick cheapest windows from ANY time that can provide energy before discharge
+4. **Simulate energy flow** - verify battery never runs empty
+
+### Algorithm Flow
+
+```
+1. Process prices (add VAT/tax)
+   ↓
+2. Find ALL discharge windows (expensive percentile)
+   ↓
+3. Calculate TOTAL energy needed for all discharge windows
+   ↓
+4. Calculate minimum charge windows needed (accounting for RTE)
+   ↓
+5. Select charge windows GLOBALLY:
+   ├─ Sort all available windows by price (cheapest first)
+   ├─ Exclude windows overlapping with discharge
+   ├─ For each candidate: verify it's before at least one future discharge
+   └─ Select until energy requirement met
+   ↓
+6. Simulate energy flow chronologically:
+   ├─ Track battery state hour-by-hour
+   ├─ If battery goes negative: add cheapest window before that point
+   └─ Repeat until valid
+   ↓
+7. Find aggressive discharge windows
+   ↓
+8. Determine current state
+```
+
+### Key Methods
+
+**Location**: `calculation_engine.py`
+
+| Method | Purpose |
+|--------|---------|
+| `_calculate_energy_requirement()` | Calculate total Wh needed for all discharge windows |
+| `_select_charge_windows_globally()` | Select cheapest windows from any time period |
+| `_simulate_energy_flow()` | Verify battery never goes negative, add windows if needed |
+
+### Example
+
+**Prices**: Night 0.10€, Morning peak 0.45€, Day 0.25€, Evening peak 0.50€
+
+**Old behavior** (local optimization):
+```
+Charge:    [10:00, 11:00, 12:00, 13:00] @ ~0.25 EUR (cheapest during day)
+Discharge: [07:00, 08:00] + [18:00, 19:00, 20:00] @ ~0.45-0.50 EUR
+⚠️ Battery empty at 07:00!
+```
+
+**New behavior** (global optimization):
+```
+Charge:    [00:00, 01:00, 02:00, 03:00, 04:00] @ ~0.10 EUR (cheapest overall = night)
+Discharge: [07:00, 08:00] + [18:00, 19:00, 20:00] @ ~0.45-0.50 EUR
+✅ Night charging covers BOTH morning AND evening peaks!
+```
+
+### Energy Calculation
+
+```python
+# Total discharge energy
+total_discharge_wh = num_discharge_windows × window_duration_hours × discharge_power_watts
+# Example: 8 windows × 0.25h × 2400W = 4800 Wh
+
+# Energy needed for charging (accounting for efficiency losses)
+energy_needed_wh = total_discharge_wh / battery_rte
+# Example: 4800 Wh / 0.85 = 5647 Wh
+
+# Minimum charge windows
+min_charge_windows = ceil(energy_needed_wh / (window_duration_hours × charge_power_watts))
+# Example: 5647 Wh / (0.25h × 2400W) = 9.4 → 10 windows
+```
+
+### Files
+
+| File | Purpose |
+|------|---------|
+| `calculation_engine.py` | Core algorithm with `_calculate_energy_requirement()`, `_select_charge_windows_globally()`, `_simulate_energy_flow()` |
 
 ## Known Limitations
 

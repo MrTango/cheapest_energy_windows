@@ -177,13 +177,133 @@
   "options": {
     "step": {
       "init": {
-        "title": "Cheapest Energy Windows NG Options",
-        "description": "Adjust the configuration for Cheapest Energy Windows NG",
+        "title": "Step 1: Price & Cost Settings",
+        "description": "{info}",
         "data": {
           "price_sensor": "Price Sensor",
           "vat_rate": "VAT Rate",
           "tax": "Tax per kWh (EUR)",
           "additional_cost": "Additional Cost per kWh (EUR)"
+        },
+        "data_description": {
+          "price_sensor": "Select the price sensor that provides your electricity price data",
+          "vat_rate": "VAT rate as decimal (e.g., 0.21 for 21%)",
+          "tax": "Fixed tax amount per kWh in EUR",
+          "additional_cost": "Additional costs per kWh in EUR (grid fees, etc.)"
+        }
+      },
+      "base_usage": {
+        "title": "Step 2: Base Usage Settings",
+        "description": "{info}",
+        "data": {
+          "base_usage": "Household Base Load (Watts)",
+          "base_usage_charge_strategy": "During Charging",
+          "base_usage_idle_strategy": "During Idle",
+          "base_usage_discharge_strategy": "During Discharge",
+          "base_usage_aggressive_strategy": "During Aggressive Discharge"
+        },
+        "data_description": {
+          "base_usage": "Average constant power consumption (lights, appliances, standby devices)",
+          "base_usage_charge_strategy": "How base load is handled while battery charges",
+          "base_usage_idle_strategy": "How base load is handled when battery is idle",
+          "base_usage_discharge_strategy": "How base load affects discharge calculations",
+          "base_usage_aggressive_strategy": "How base load affects aggressive discharge calculations"
+        }
+      },
+      "power": {
+        "title": "Step 3: Power Settings",
+        "description": "{info}",
+        "data": {
+          "charge_power": "Charge Power (W)",
+          "discharge_power": "Discharge Power (W)",
+          "battery_rte": "Battery RTE (%)"
+        },
+        "data_description": {
+          "charge_power": "Battery charging power in Watts (800W is typical for single battery)",
+          "discharge_power": "Battery discharging power in Watts",
+          "battery_rte": "Round-trip efficiency 50-100% (85% typical)"
+        }
+      },
+      "pricing_windows": {
+        "title": "Step 4: Pricing Windows",
+        "description": "{info}",
+        "data": {
+          "pricing_window_duration": "Window Duration",
+          "charging_windows": "Charging Windows",
+          "expensive_windows": "Discharge Windows",
+          "cheap_percentile": "Cheap Percentile %",
+          "expensive_percentile": "Expensive Percentile %",
+          "min_spread": "Min Spread Charge %",
+          "min_spread_discharge": "Min Spread Discharge %",
+          "aggressive_discharge_spread": "Aggressive Spread %",
+          "min_price_difference": "Min Price Difference (EUR/kWh)",
+          "price_override_enabled": "Enable Price Override",
+          "price_override_threshold": "Price Override Threshold (EUR/kWh)"
+        },
+        "data_description": {
+          "pricing_window_duration": "Match this to your energy contract (15-min or hourly pricing)",
+          "charging_windows": "How many cheapest time windows to use for charging",
+          "expensive_windows": "How many most expensive windows to use for discharging",
+          "cheap_percentile": "Percentile threshold for identifying cheap prices (1-50%)",
+          "expensive_percentile": "Percentile threshold for identifying expensive prices (1-50%)",
+          "min_spread": "Minimum price spread % required to activate charging",
+          "min_spread_discharge": "Minimum spread % required for normal discharge",
+          "aggressive_discharge_spread": "Spread % required for aggressive peak discharge",
+          "min_price_difference": "Absolute minimum price difference in EUR/kWh",
+          "price_override_enabled": "Always charge when price drops below threshold",
+          "price_override_threshold": "Price threshold in EUR/kWh for immediate charging"
+        }
+      },
+      "battery": {
+        "title": "Step 5: Battery Sensors",
+        "description": "{info}",
+        "data": {
+          "battery_system_name": "Battery System Name",
+          "battery_soc_sensor": "State of Charge Sensor",
+          "battery_available_energy_sensor": "Available Energy Sensor",
+          "battery_daily_charge_sensor": "Daily Charge Sensor",
+          "battery_daily_discharge_sensor": "Daily Discharge Sensor",
+          "battery_power_sensor": "Current Power Sensor"
+        },
+        "data_description": {
+          "battery_system_name": "Friendly name for your battery system",
+          "battery_soc_sensor": "Sensor showing current battery charge %",
+          "battery_available_energy_sensor": "Sensor showing available battery capacity in kWh",
+          "battery_daily_charge_sensor": "Sensor tracking total energy charged today in kWh",
+          "battery_daily_discharge_sensor": "Sensor tracking total energy discharged today in kWh",
+          "battery_power_sensor": "Sensor showing current battery power in W"
+        }
+      },
+      "battery_operations": {
+        "title": "Step 6: Battery Operations",
+        "description": "{info}",
+        "data": {
+          "battery_idle_action": "Idle Mode Action",
+          "battery_charge_action": "Charge Mode Action",
+          "battery_discharge_action": "Discharge Mode Action",
+          "battery_aggressive_discharge_action": "Aggressive Discharge Mode Action",
+          "battery_off_action": "Off Mode Action"
+        },
+        "data_description": {
+          "battery_idle_action": "Select automation/script for idle mode",
+          "battery_charge_action": "Select automation/script for charge mode",
+          "battery_discharge_action": "Select automation/script for discharge mode",
+          "battery_aggressive_discharge_action": "Select automation/script for aggressive discharge",
+          "battery_off_action": "Select automation/script for off mode"
+        }
+      },
+      "solar": {
+        "title": "Step 7: Solar Settings",
+        "description": "{info}",
+        "data": {
+          "solar_optimization_enabled": "Enable Solar Optimization",
+          "solar_forecast_sensors_today": "Today's Solar Forecast Sensors",
+          "solar_forecast_sensors_tomorrow": "Tomorrow's Solar Forecast Sensors"
+        },
+        "data_description": {
+          "solar_optimization_enabled": "Skip unnecessary charging when solar production is expected",
+          "solar_forecast_sensors_today": "Select Forecast.Solar sensors providing today's solar production estimates",
+          "solar_forecast_sensors_tomorrow": "Select Forecast.Solar sensors providing tomorrow's solar production estimates"
         }
       }
     }

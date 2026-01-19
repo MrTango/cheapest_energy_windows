@@ -825,21 +825,29 @@ Total: 71 entities
 class CEWOptionsFlow(config_entries.OptionsFlow):
     """Handle options for Cheapest Energy Windows NG."""
 
+    def __init__(self) -> None:
+        """Initialize options flow."""
+        self._updated_options: dict[str, Any] = {}
+
+    def _get_value(self, key: str, default: Any = None) -> Any:
+        """Get value from options first, then data, then default."""
+        if key in self.config_entry.options:
+            return self.config_entry.options[key]
+        if key in self.config_entry.data:
+            return self.config_entry.data[key]
+        return default
+
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Manage the options."""
+        """Step 1: Price & Cost Settings."""
         if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
-
-        options = self.config_entry.options
+            self._updated_options.update(user_input)
+            return await self.async_step_base_usage()
 
         # Build price sensor options (including tibber_action if available)
         price_sensor_options = []
-        current_price_sensor = options.get(
-            CONF_PRICE_SENSOR,
-            self.config_entry.data.get(CONF_PRICE_SENSOR, DEFAULT_PRICE_SENSOR)
-        )
+        current_price_sensor = self._get_value(CONF_PRICE_SENSOR, DEFAULT_PRICE_SENSOR)
 
         # Add current sensor first if it exists
         if current_price_sensor:
@@ -890,38 +898,423 @@ class CEWOptionsFlow(config_entries.OptionsFlow):
                 ),
                 vol.Optional(
                     CONF_VAT_RATE,
-                    default=options.get(
-                        CONF_VAT_RATE,
-                        self.config_entry.data.get(CONF_VAT_RATE, DEFAULT_VAT_RATE)
-                    ),
+                    default=self._get_value(CONF_VAT_RATE, DEFAULT_VAT_RATE),
                 ): vol.All(vol.Coerce(float), vol.Range(min=0, max=1)),
                 vol.Optional(
                     CONF_TAX,
-                    default=options.get(
-                        CONF_TAX,
-                        self.config_entry.data.get(CONF_TAX, DEFAULT_TAX)
-                    ),
+                    default=self._get_value(CONF_TAX, DEFAULT_TAX),
                 ): vol.All(vol.Coerce(float), vol.Range(min=0, max=1)),
                 vol.Optional(
                     CONF_ADDITIONAL_COST,
-                    default=options.get(
-                        CONF_ADDITIONAL_COST,
-                        self.config_entry.data.get(CONF_ADDITIONAL_COST, DEFAULT_ADDITIONAL_COST)
-                    ),
+                    default=self._get_value(CONF_ADDITIONAL_COST, DEFAULT_ADDITIONAL_COST),
                 ): vol.All(vol.Coerce(float), vol.Range(min=0, max=1)),
+            }),
+            description_placeholders={
+                "info": "Step 1 of 7: Configure price sensor and cost settings."
+            },
+        )
+
+    async def async_step_base_usage(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Step 2: Base Usage Settings."""
+        if user_input is not None:
+            self._updated_options.update(user_input)
+            return await self.async_step_power()
+
+        return self.async_show_form(
+            step_id="base_usage",
+            data_schema=vol.Schema({
+                vol.Optional(
+                    CONF_BASE_USAGE,
+                    default=self._get_value(CONF_BASE_USAGE, DEFAULT_BASE_USAGE),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0,
+                        max=5000,
+                        step=50,
+                        unit_of_measurement="W",
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Optional(
+                    CONF_BASE_USAGE_CHARGE_STRATEGY,
+                    default=self._get_value(CONF_BASE_USAGE_CHARGE_STRATEGY, DEFAULT_BASE_USAGE_CHARGE_STRATEGY),
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            {"label": "Grid powers house + charging", "value": "grid_covers_both"},
+                            {"label": "Battery powers house during charging", "value": "battery_covers_base"},
+                        ],
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                ),
+                vol.Optional(
+                    CONF_BASE_USAGE_IDLE_STRATEGY,
+                    default=self._get_value(CONF_BASE_USAGE_IDLE_STRATEGY, DEFAULT_BASE_USAGE_IDLE_STRATEGY),
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            {"label": "Battery powers house", "value": "battery_covers"},
+                            {"label": "Grid powers house", "value": "grid_covers"},
+                        ],
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                ),
+                vol.Optional(
+                    CONF_BASE_USAGE_DISCHARGE_STRATEGY,
+                    default=self._get_value(CONF_BASE_USAGE_DISCHARGE_STRATEGY, DEFAULT_BASE_USAGE_DISCHARGE_STRATEGY),
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            {"label": "House first, export remainder", "value": "subtract_base"},
+                            {"label": "Export full discharge power", "value": "already_included"},
+                        ],
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                ),
+                vol.Optional(
+                    CONF_BASE_USAGE_AGGRESSIVE_STRATEGY,
+                    default=self._get_value(CONF_BASE_USAGE_AGGRESSIVE_STRATEGY, DEFAULT_BASE_USAGE_AGGRESSIVE_STRATEGY),
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            {"label": "Same as discharge strategy", "value": "same_as_discharge"},
+                            {"label": "House first, export remainder", "value": "subtract_base"},
+                            {"label": "Export full discharge power", "value": "already_included"},
+                        ],
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                ),
+            }),
+            description_placeholders={
+                "info": "Step 2 of 7: Configure base household usage tracking.\n\n"
+                       "Base usage is your household's constant power consumption (base load)."
+            },
+        )
+
+    async def async_step_power(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Step 3: Power Settings."""
+        if user_input is not None:
+            self._updated_options.update(user_input)
+            return await self.async_step_pricing_windows()
+
+        return self.async_show_form(
+            step_id="power",
+            data_schema=vol.Schema({
+                vol.Required(
+                    "charge_power",
+                    default=self._get_value("charge_power", DEFAULT_CHARGE_POWER),
+                ): vol.All(vol.Coerce(int), vol.Range(min=100, max=10000)),
+                vol.Required(
+                    "discharge_power",
+                    default=self._get_value("discharge_power", DEFAULT_DISCHARGE_POWER),
+                ): vol.All(vol.Coerce(int), vol.Range(min=100, max=10000)),
+                vol.Required(
+                    "battery_rte",
+                    default=self._get_value("battery_rte", DEFAULT_BATTERY_RTE),
+                ): vol.All(vol.Coerce(int), vol.Range(min=50, max=100)),
+            }),
+            description_placeholders={
+                "info": "Step 3 of 7: Configure battery power parameters.\n\n"
+                       "These values are used to calculate energy capacity for charging/discharging windows."
+            },
+        )
+
+    async def async_step_pricing_windows(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Step 4: Pricing Window Settings."""
+        if user_input is not None:
+            self._updated_options.update(user_input)
+            return await self.async_step_battery()
+
+        return self.async_show_form(
+            step_id="pricing_windows",
+            data_schema=vol.Schema({
+                vol.Required(
+                    "pricing_window_duration",
+                    default=self._get_value("pricing_window_duration", PRICING_1_HOUR),
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            {"label": "15 Minutes (96 windows per day)", "value": PRICING_15_MINUTES},
+                            {"label": "1 Hour (24 windows per day)", "value": PRICING_1_HOUR},
+                        ],
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                ),
+                vol.Required(
+                    "charging_windows",
+                    default=self._get_value("charging_windows", DEFAULT_CHARGING_WINDOWS),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0,
+                        max=96,
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(
+                    "expensive_windows",
+                    default=self._get_value("expensive_windows", DEFAULT_EXPENSIVE_WINDOWS),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0,
+                        max=96,
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(
+                    "cheap_percentile",
+                    default=self._get_value("cheap_percentile", DEFAULT_CHEAP_PERCENTILE),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=1,
+                        max=50,
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(
+                    "expensive_percentile",
+                    default=self._get_value("expensive_percentile", DEFAULT_EXPENSIVE_PERCENTILE),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=1,
+                        max=50,
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(
+                    "min_spread",
+                    default=self._get_value("min_spread", DEFAULT_MIN_SPREAD),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0,
+                        max=200,
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(
+                    "min_spread_discharge",
+                    default=self._get_value("min_spread_discharge", DEFAULT_MIN_SPREAD_DISCHARGE),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0,
+                        max=200,
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(
+                    "aggressive_discharge_spread",
+                    default=self._get_value("aggressive_discharge_spread", DEFAULT_AGGRESSIVE_DISCHARGE_SPREAD),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0,
+                        max=300,
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Optional(
+                    "min_price_difference",
+                    default=self._get_value("min_price_difference", DEFAULT_MIN_PRICE_DIFFERENCE),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0,
+                        max=0.5,
+                        step=0.01,
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(
+                    "price_override_enabled",
+                    default=self._get_value("price_override_enabled", False),
+                ): selector.BooleanSelector(),
+                vol.Optional(
+                    "price_override_threshold",
+                    default=self._get_value("price_override_threshold", DEFAULT_PRICE_OVERRIDE_THRESHOLD),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0,
+                        max=0.5,
+                        step=0.01,
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+            }),
+            description_placeholders={
+                "info": "Step 4 of 7: Configure pricing window duration and optimization settings.\n\n"
+                       "Spread settings control when to charge/discharge based on price differences."
+            },
+        )
+
+    async def async_step_battery(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Step 5: Battery Sensors."""
+        if user_input is not None:
+            # Filter out empty values
+            battery_data = {
+                k: v for k, v in user_input.items()
+                if v is not None and v != "" and v != "not_configured"
+            }
+            self._updated_options.update(battery_data)
+            return await self.async_step_battery_operations()
+
+        return self.async_show_form(
+            step_id="battery",
+            data_schema=vol.Schema({
+                vol.Optional(
+                    CONF_BATTERY_SYSTEM_NAME,
+                    default=self._get_value(CONF_BATTERY_SYSTEM_NAME, ""),
+                ): cv.string,
+                vol.Optional(
+                    CONF_BATTERY_SOC_SENSOR,
+                    default=self._get_value(CONF_BATTERY_SOC_SENSOR, ""),
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(
+                        domain="sensor",
+                        multiple=False,
+                    )
+                ),
+                vol.Optional(
+                    CONF_BATTERY_ENERGY_SENSOR,
+                    default=self._get_value(CONF_BATTERY_ENERGY_SENSOR, ""),
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(
+                        domain="sensor",
+                        multiple=False,
+                    )
+                ),
+                vol.Optional(
+                    CONF_BATTERY_CHARGE_SENSOR,
+                    default=self._get_value(CONF_BATTERY_CHARGE_SENSOR, ""),
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(
+                        domain="sensor",
+                        multiple=False,
+                    )
+                ),
+                vol.Optional(
+                    CONF_BATTERY_DISCHARGE_SENSOR,
+                    default=self._get_value(CONF_BATTERY_DISCHARGE_SENSOR, ""),
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(
+                        domain="sensor",
+                        multiple=False,
+                    )
+                ),
+                vol.Optional(
+                    CONF_BATTERY_POWER_SENSOR,
+                    default=self._get_value(CONF_BATTERY_POWER_SENSOR, ""),
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(
+                        domain="sensor",
+                        multiple=False,
+                    )
+                ),
+            }),
+            description_placeholders={
+                "info": "Step 5 of 7: Configure battery system sensors.\n\n"
+                       "Leave fields empty to skip battery sensor configuration."
+            },
+        )
+
+    async def async_step_battery_operations(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Step 6: Battery Operations."""
+        if user_input is not None:
+            # Set default "not_configured" for any empty/missing fields
+            battery_ops = {
+                "battery_idle_action": user_input.get("battery_idle_action", "not_configured") or "not_configured",
+                "battery_charge_action": user_input.get("battery_charge_action", "not_configured") or "not_configured",
+                "battery_discharge_action": user_input.get("battery_discharge_action", "not_configured") or "not_configured",
+                "battery_aggressive_discharge_action": user_input.get("battery_aggressive_discharge_action", "not_configured") or "not_configured",
+                "battery_off_action": user_input.get("battery_off_action", "not_configured") or "not_configured",
+            }
+            self._updated_options.update(battery_ops)
+            return await self.async_step_solar()
+
+        return self.async_show_form(
+            step_id="battery_operations",
+            data_schema=vol.Schema({
+                vol.Optional(
+                    "battery_idle_action",
+                    default=self._get_value("battery_idle_action", ""),
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(
+                        domain=["automation", "script", "scene"],
+                        multiple=False,
+                    )
+                ),
+                vol.Optional(
+                    "battery_charge_action",
+                    default=self._get_value("battery_charge_action", ""),
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(
+                        domain=["automation", "script", "scene"],
+                        multiple=False,
+                    )
+                ),
+                vol.Optional(
+                    "battery_discharge_action",
+                    default=self._get_value("battery_discharge_action", ""),
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(
+                        domain=["automation", "script", "scene"],
+                        multiple=False,
+                    )
+                ),
+                vol.Optional(
+                    "battery_aggressive_discharge_action",
+                    default=self._get_value("battery_aggressive_discharge_action", ""),
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(
+                        domain=["automation", "script", "scene"],
+                        multiple=False,
+                    )
+                ),
+                vol.Optional(
+                    "battery_off_action",
+                    default=self._get_value("battery_off_action", ""),
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(
+                        domain=["automation", "script", "scene"],
+                        multiple=False,
+                    )
+                ),
+            }),
+            description_placeholders={
+                "info": "Step 6 of 7: Configure battery operation automations.\n\n"
+                       "Link existing automations, scripts, or scenes to battery modes."
+            },
+        )
+
+    async def async_step_solar(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Step 7: Solar Settings - FINAL step that saves all options."""
+        if user_input is not None:
+            self._updated_options.update(user_input)
+
+            # Merge accumulated options with existing options to preserve settings
+            final_options = dict(self.config_entry.options)
+            final_options.update(self._updated_options)
+
+            return self.async_create_entry(title="", data=final_options)
+
+        return self.async_show_form(
+            step_id="solar",
+            data_schema=vol.Schema({
                 vol.Optional(
                     CONF_SOLAR_OPTIMIZATION_ENABLED,
-                    default=options.get(
-                        CONF_SOLAR_OPTIMIZATION_ENABLED,
-                        DEFAULT_SOLAR_OPTIMIZATION_ENABLED
-                    ),
+                    default=self._get_value(CONF_SOLAR_OPTIMIZATION_ENABLED, DEFAULT_SOLAR_OPTIMIZATION_ENABLED),
                 ): selector.BooleanSelector(),
                 vol.Optional(
                     CONF_SOLAR_FORECAST_SENSORS_TODAY,
-                    default=options.get(
-                        CONF_SOLAR_FORECAST_SENSORS_TODAY,
-                        DEFAULT_SOLAR_FORECAST_SENSORS_TODAY
-                    ),
+                    default=self._get_value(CONF_SOLAR_FORECAST_SENSORS_TODAY, DEFAULT_SOLAR_FORECAST_SENSORS_TODAY),
                 ): selector.EntitySelector(
                     selector.EntitySelectorConfig(
                         domain="sensor",
@@ -931,10 +1324,7 @@ class CEWOptionsFlow(config_entries.OptionsFlow):
                 ),
                 vol.Optional(
                     CONF_SOLAR_FORECAST_SENSORS_TOMORROW,
-                    default=options.get(
-                        CONF_SOLAR_FORECAST_SENSORS_TOMORROW,
-                        DEFAULT_SOLAR_FORECAST_SENSORS_TOMORROW
-                    ),
+                    default=self._get_value(CONF_SOLAR_FORECAST_SENSORS_TOMORROW, DEFAULT_SOLAR_FORECAST_SENSORS_TOMORROW),
                 ): selector.EntitySelector(
                     selector.EntitySelectorConfig(
                         domain="sensor",
@@ -943,4 +1333,9 @@ class CEWOptionsFlow(config_entries.OptionsFlow):
                     )
                 ),
             }),
+            description_placeholders={
+                "info": "Step 7 of 7: Configure solar forecast settings.\n\n"
+                       "Enable solar optimization to skip unnecessary charging when solar production is expected.\n\n"
+                       "Click Submit to save all settings."
+            },
         )
